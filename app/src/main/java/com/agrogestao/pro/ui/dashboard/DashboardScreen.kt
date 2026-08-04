@@ -47,6 +47,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -99,6 +100,9 @@ import kotlinx.coroutines.withContext
 @Composable
 fun DashboardScreen(
     viewModel: DashboardViewModel,
+    simpleMode: Boolean = false,
+    openBackupRequested: Boolean = false,
+    onBackupRequestHandled: () -> Unit = {},
     onNavigateToTasks: () -> Unit,
     onNavigateToSafras: () -> Unit
 ) {
@@ -111,6 +115,16 @@ fun DashboardScreen(
     var backupDialogError by remember { mutableStateOf<String?>(null) }
     var pendingBackupContent by remember { mutableStateOf<String?>(null) }
     var pendingRestorePassword by remember { mutableStateOf("") }
+
+    LaunchedEffect(openBackupRequested) {
+        if (openBackupRequested) {
+            backupDialog = BackupDialogMode.EXPORT
+            backupPassword = ""
+            backupConfirmation = ""
+            backupDialogError = null
+            onBackupRequestHandled()
+        }
+    }
 
     val createBackupFile = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(AgroBackupCodec.MIME_TYPE)
@@ -199,7 +213,7 @@ fun DashboardScreen(
                     modifier = Modifier.padding(top = 14.dp)
                 )
                 Text(
-                    "Acompanhe sua propriedade hoje",
+                    if (simpleMode) "Veja o que precisa de atenção hoje" else "Acompanhe sua propriedade hoje",
                     color = TextMuted,
                     fontSize = 12.5.sp,
                     modifier = Modifier.padding(top = 3.dp)
@@ -246,7 +260,7 @@ fun DashboardScreen(
             }
 
             DashboardSection {
-                AgroSectionHeader("Tarefas de hoje", "Ver quadro", onNavigateToTasks)
+                AgroSectionHeader(if (simpleMode) "O que fazer hoje" else "Tarefas de hoje", "Ver todas", onNavigateToTasks)
                 Spacer(Modifier.height(13.dp))
                 PrototypeCard {
                     if (state.tarefasPendentes.isEmpty()) {

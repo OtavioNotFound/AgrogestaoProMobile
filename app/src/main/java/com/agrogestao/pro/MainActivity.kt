@@ -15,11 +15,13 @@ import com.agrogestao.pro.ui.theme.AgroGestaoTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.lifecycleScope
 import com.agrogestao.pro.data.remote.SupabaseAuthCallbackParser
+import com.agrogestao.pro.data.remote.PasswordRecoverySession
 import com.agrogestao.pro.data.repository.AgroRepository
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val requestedRoute = mutableStateOf<String?>(null)
+    private val passwordRecoverySession = mutableStateOf<PasswordRecoverySession?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,7 +39,10 @@ class MainActivity : ComponentActivity() {
                 ) {
                     MainAppNavigation(
                         repository = repository,
+                        displayModePreferences = app.displayModePreferences,
                         taskReminderGateway = app.taskReminderService,
+                        passwordRecoverySession = passwordRecoverySession.value,
+                        onPasswordRecoveryConsumed = { passwordRecoverySession.value = null },
                         requestedRoute = requestedRoute.value,
                         onRequestedRouteHandled = { requestedRoute.value = null }
                     )
@@ -73,6 +78,19 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(
                 this,
                 "O link de confirmação está incompleto. Peça um novo e-mail.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        if (callback.type.equals("recovery", ignoreCase = true)) {
+            passwordRecoverySession.value = PasswordRecoverySession(
+                accessToken = callback.accessToken.orEmpty(),
+                refreshToken = callback.refreshToken.orEmpty(),
+                expiresInSeconds = callback.expiresInSeconds
+            )
+            Toast.makeText(
+                this,
+                "Crie uma nova senha para recuperar sua conta.",
                 Toast.LENGTH_LONG
             ).show()
             return

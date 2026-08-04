@@ -33,6 +33,7 @@ import com.agrogestao.pro.data.sync.nextLocalTimestamp
 import com.agrogestao.pro.data.sync.parseCloudTimestamp
 import com.agrogestao.pro.data.sync.shouldApplyRemoteChange
 import com.agrogestao.pro.domain.canUseLocalProfile
+import com.agrogestao.pro.domain.accountPasswordError
 import com.agrogestao.pro.domain.shouldRefreshToken
 import com.agrogestao.pro.domain.tokenExpiryEpochSeconds
 import kotlinx.coroutines.Dispatchers
@@ -371,6 +372,77 @@ class AgroRepository(
             }
             Result.success(Unit)
         }
+
+    suspend fun requestPasswordRecovery(email: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            val normalizedEmail = email.trim().lowercase()
+            if (normalizedEmail.isBlank()) {
+                return@withContext Result.failure(Exception("Informe o e-mail da conta."))
+            }
+            val response = SupabaseRestClient.requestPasswordRecovery(normalizedEmail)
+            if (!response.success) {
+                return@withContext Result.failure(
+                    Exception(response.errorMessage ?: "Não foi possível enviar o e-mail de recuperação.")
+                )
+            }
+            Result.success(Unit)
+        }
+
+    suspend fun completePasswordRecovery(
+        accessToken: String,
+        refreshToken: String,
+        expiresInSeconds: Long,
+        newPassword: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (accessToken.isBlank() || refreshToken.isBlank()) {
+            return@withContext Result.failure(
+                Exception("O link de recuperação está incompleto. Peça um novo e-mail.")
+            )
+        }
+        accountPasswordError(newPassword)?.let { message ->
+            return@withContext Result.failure(
+                Exception(message)
+            )
+        }
+        val verifiedRecovery = SupabaseRestClient.validateAccessToken(accessToken)
+        verifiedRecovery.errorMessage?.let {
+            return@withContext Result.failure(
+                Exception("O link de recuperação expirou ou já foi usado. Peça um novo e-mail.")
+            )
+        }
+        val recoveryEmail = verifiedRecovery.email.orEmpty().trim().lowercase()
+        val existing = producerDao.getProducerProfileOnce()
+        if (recoveryEmail.isBlank()) {
+            return@withContext Result.failure(Exception("A conta do link de recuperação é inválida."))
+        }
+        if (!canUseLocalProfile(existing?.email, recoveryEmail)) {
+            return@withContext Result.failure(accountMismatchError())
+        }
+        val updated = SupabaseRestClient.updatePassword(accessToken, newPassword)
+        if (!updated.success) {
+            return@withContext Result.failure(
+                Exception(updated.errorMessage ?: "Não foi possível criar a nova senha.")
+            )
+        }
+        completeEmailConfirmation(accessToken, refreshToken, expiresInSeconds)
+    }
+
+    suspend fun changePassword(newPassword: String): Result<Unit> = withContext(Dispatchers.IO) {
+        accountPasswordError(newPassword)?.let { message ->
+            return@withContext Result.failure(Exception(message))
+        }
+        val session = getCloudSession()
+            ?: return@withContext Result.failure(
+                Exception("Entre com uma conta conectada à nuvem para trocar a senha.")
+            )
+        val updated = SupabaseRestClient.updatePassword(session.accessToken, newPassword)
+        if (!updated.success) {
+            return@withContext Result.failure(
+                Exception(updated.errorMessage ?: "Não foi possível trocar a senha.")
+            )
+        }
+        Result.success(Unit)
+    }
 
     suspend fun completeEmailConfirmation(
         accessToken: String,

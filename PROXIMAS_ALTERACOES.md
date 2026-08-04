@@ -3,6 +3,30 @@
 **Ponto de partida:** AgroGestão Pro `1.1.0-beta8`<br>
 **Atualizado em:** 02/08/2026
 
+## Ciclo concluído em 04/08/2026 — Modo Simples
+
+- Preferência persistente e isolada por conta/proprietário.
+- Navegação reduzida para Início, Tarefas, Talhões e Mais.
+- Tela Mais com acesso a custos, relatórios, perfil e backup.
+- Alternância disponível no Perfil e em Mais, sem remover o modo completo.
+- Correção do retorno ao Perfil ao desativar o modo e abertura direta do backup.
+- Validação: 37 testes unitários e 32 instrumentados sem falhas, lint sem erros e APK debug gerado.
+
+A ordem dos próximos ciclos segue a documentação técnica v3: recuperação de acesso e estabilização vêm antes do clima.
+
+## Ciclo implementado em 04/08/2026 — recuperação de acesso e CI
+
+- Solicitação de recuperação de senha pelo e-mail da conta.
+- Deep link de recuperação separado da confirmação de cadastro.
+- Validação do token e da conta local antes da alteração.
+- Nova senha com oito caracteres, confirmação e entrada automática segura.
+- Troca de senha disponível para usuário conectado.
+- Mensagens para link expirado, limite de envio, modo local e sessão indisponível.
+- Pipeline GitHub Actions com JDK 21, testes, lint, APK e checagem de segredos.
+- Validação local: 41 testes unitários e 32 instrumentados sem falhas; dois testes live ignorados sem credenciais temporárias.
+
+Pendente para considerar a beta9 pronta: executar entrega, abertura e expiração do e-mail de recuperação em aparelho real usando somente conta temporária protegida.
+
 ## Como cada ciclo será conduzido
 
 Cada nova versão seguirá esta ordem:

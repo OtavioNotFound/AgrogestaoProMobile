@@ -259,10 +259,34 @@ Correção de autenticação concluída na beta8 em 02/08/2026:
 - teste fim a fim com confirmação, abertura automática do app e entrada no painel;
 - nova regressão real da sincronização entre dois bancos locais aprovada.
 
+Modo Simples concluído no ciclo de 04/08/2026:
+
+- preferência global de interface persistida e isolada por proprietário local ou remoto;
+- modo completo preservado sem remoção de recursos;
+- barra simplificada com quatro destinos: Início, Tarefas, Talhões e Mais;
+- nova tela Mais agrupando custos/relatórios, perfil, backup e troca do modo;
+- custos e perfil continuam acessíveis e destacam corretamente o destino Mais;
+- atalho de backup abre diretamente o fluxo protegido no painel;
+- desligar o modo na tela Mais retorna com segurança ao Perfil;
+- painel com linguagem mais direta quando o modo está ativo;
+- 37 testes unitários e 32 instrumentados executados, sem falhas; lint com zero erros e APK gerado.
+
+Recuperação de acesso e CI implementadas no ciclo de 04/08/2026:
+
+- “Esqueci a senha” agora solicita o e-mail pelo endpoint de recuperação do Supabase;
+- resposta não revela se um endereço possui conta cadastrada;
+- deep link `type=recovery` abre uma tela exclusiva para criar a nova senha;
+- token do link e compatibilidade com o perfil local são validados antes de alterar a senha;
+- senha mínima de oito caracteres e confirmação centralizadas em regra de domínio;
+- troca de senha para usuário autenticado disponível no Perfil;
+- CI adicionada para JDK 21, testes unitários, lint, APK e varredura conservadora de segredos;
+- 41 testes unitários e 32 instrumentados executados, sem falhas; dois testes live ignorados sem credenciais temporárias;
+- pendência de saída: validar entrega/abertura do e-mail e troca real usando exclusivamente conta temporária.
+
 Próximo ciclo planejado:
 
-- previsão do tempo opcional baseada no município informado pelo produtor;
-- explicação e autorização antes de consultar o município em um serviço externo;
-- fonte, horário da atualização e limitações da previsão exibidos claramente;
-- cache da última previsão para consulta sem internet e atualização manual;
-- alertas agrícolas simples derivados de chuva, calor e vento, sem recomendações automáticas de crédito.
+- validar recuperação/troca de senha no Supabase real com uma conta temporária;
+- reconstruir ou substituir com upgrade assistido a migration v1 destrutiva;
+- migrar valores monetários de `Double` para centavos `Long`, com testes de atualização;
+- preparar assinatura/AAB e triar avisos prioritários do lint;
+- depois avançar em privacidade operacional, modularização e demais itens da documentação técnica v3.

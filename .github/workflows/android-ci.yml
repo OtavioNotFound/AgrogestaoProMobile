@@ -1,0 +1,54 @@
+name: Android CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Testes, lint e APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v6
+
+      - name: Configurar JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Verificar segredos versionados
+        run: python3 .github/scripts/check_secrets.py
+
+      - name: Validar wrapper
+        run: chmod +x gradlew
+
+      - name: Executar testes, lint e montar APK
+        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+
+      - name: Publicar relatórios e APK de teste
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: agrogestao-debug-${{ github.run_number }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/reports/lint-results-debug.html
+            app/build/reports/tests/testDebugUnitTest/

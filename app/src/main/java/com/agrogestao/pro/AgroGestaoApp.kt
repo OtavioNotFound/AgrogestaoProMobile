@@ -9,6 +9,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.agrogestao.pro.data.local.AgroDatabase
+import com.agrogestao.pro.data.preferences.AppDisplayModePreferences
 import com.agrogestao.pro.data.repository.AgroRepository
 import com.agrogestao.pro.data.reminders.TaskReminderPreferences
 import com.agrogestao.pro.data.reminders.TaskReminderScheduler
@@ -44,6 +45,10 @@ class AgroGestaoApp : Application() {
 
     val taskReminderPreferences: TaskReminderPreferences by lazy {
         TaskReminderPreferences(this)
+    }
+
+    val displayModePreferences: AppDisplayModePreferences by lazy {
+        AppDisplayModePreferences(this)
     }
 
     val taskReminderService: TaskReminderService by lazy {

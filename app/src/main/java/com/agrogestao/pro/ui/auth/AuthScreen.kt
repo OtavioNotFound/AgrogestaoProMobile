@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -56,6 +57,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.agrogestao.pro.data.remote.SupabaseConfig
+import com.agrogestao.pro.data.remote.PasswordRecoverySession
 import com.agrogestao.pro.ui.theme.AgroGreen050
 import com.agrogestao.pro.ui.theme.AgroGreen100
 import com.agrogestao.pro.ui.theme.AgroGreen900
@@ -72,6 +74,8 @@ import com.agrogestao.pro.ui.theme.TextSecondary
 @Composable
 fun AuthScreen(
     viewModel: AuthViewModel,
+    passwordRecoverySession: PasswordRecoverySession? = null,
+    onPasswordRecoveryConsumed: () -> Unit = {},
     onAuthSuccess: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -83,9 +87,19 @@ fun AuthScreen(
     var municipio by remember { mutableStateOf("") }
     var caf by remember { mutableStateOf("") }
     var area by remember { mutableStateOf("") }
+    var showRecoveryDialog by remember { mutableStateOf(false) }
+    var recoveryEmail by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var newPasswordConfirmation by remember { mutableStateOf("") }
 
     LaunchedEffect(state.isSuccess) {
-        if (state.isSuccess) onAuthSuccess()
+        if (state.isSuccess) {
+            if (passwordRecoverySession != null) onPasswordRecoveryConsumed()
+            onAuthSuccess()
+        }
+    }
+    LaunchedEffect(passwordRecoverySession) {
+        if (passwordRecoverySession != null) viewModel.preparePasswordRecovery()
     }
     LaunchedEffect(state.pendingConfirmationEmail) {
         state.pendingConfirmationEmail?.let { pendingEmail ->
@@ -93,6 +107,26 @@ fun AuthScreen(
             email = pendingEmail
             password = ""
         }
+    }
+
+    if (passwordRecoverySession != null) {
+        PasswordRecoveryContent(
+            state = state,
+            password = newPassword,
+            confirmation = newPasswordConfirmation,
+            onPasswordChange = { newPassword = it },
+            onConfirmationChange = { newPasswordConfirmation = it },
+            onSubmit = {
+                viewModel.completePasswordRecovery(
+                    accessToken = passwordRecoverySession.accessToken,
+                    refreshToken = passwordRecoverySession.refreshToken,
+                    expiresInSeconds = passwordRecoverySession.expiresInSeconds,
+                    newPassword = newPassword,
+                    confirmation = newPasswordConfirmation
+                )
+            }
+        )
+        return
     }
 
     Column(
@@ -224,7 +258,12 @@ fun AuthScreen(
                         "Esqueci a senha",
                         color = PrimaryAgroGreen,
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable(enabled = !state.isLoading) {
+                            recoveryEmail = email
+                            showRecoveryDialog = true
+                            viewModel.clearError()
+                        }
                     )
                 }
             }
@@ -334,6 +373,110 @@ fun AuthScreen(
                         modifier = Modifier.padding(start = 9.dp)
                     )
                 }
+            }
+        }
+    }
+
+    if (showRecoveryDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!state.isLoading) showRecoveryDialog = false },
+            title = { Text("Recuperar acesso", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text("Informe o e-mail da conta. O link abrirá diretamente no AgroGestão Pro.")
+                    OutlinedTextField(
+                        value = recoveryEmail,
+                        onValueChange = { recoveryEmail = it },
+                        label = { Text("E-mail") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.requestPasswordRecovery(recoveryEmail)
+                        showRecoveryDialog = false
+                    },
+                    enabled = !state.isLoading && recoveryEmail.isNotBlank()
+                ) { Text("Enviar link") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRecoveryDialog = false }, enabled = !state.isLoading) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun PasswordRecoveryContent(
+    state: AuthUiState,
+    password: String,
+    confirmation: String,
+    onPasswordChange: (String) -> Unit,
+    onConfirmationChange: (String) -> Unit,
+    onSubmit: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(SurfaceCard)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 40.dp)
+    ) {
+        Box(
+            modifier = Modifier.size(58.dp).background(PrimaryAgroGreen, RoundedCornerShape(17.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.Lock, null, tint = Color.White, modifier = Modifier.size(31.dp))
+        }
+        Text(
+            "Crie uma nova senha",
+            color = TextDark,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.ExtraBold,
+            modifier = Modifier.padding(top = 24.dp)
+        )
+        Text(
+            "Use pelo menos 8 caracteres. Depois você entrará automaticamente na mesma conta.",
+            color = TextMuted,
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+            modifier = Modifier.padding(top = 6.dp, bottom = 22.dp)
+        )
+        state.infoMessage?.let { AuthMessage(it, isError = false); Spacer(Modifier.height(12.dp)) }
+        state.errorMessage?.let { AuthMessage(it, isError = true); Spacer(Modifier.height(12.dp)) }
+        AuthField(
+            value = password,
+            onValueChange = onPasswordChange,
+            label = "Nova senha",
+            placeholder = "Mínimo de 8 caracteres",
+            icon = Icons.Default.Lock,
+            isPassword = true
+        )
+        AuthField(
+            value = confirmation,
+            onValueChange = onConfirmationChange,
+            label = "Repita a nova senha",
+            placeholder = "Digite a mesma senha",
+            icon = Icons.Default.Lock,
+            isPassword = true
+        )
+        Button(
+            onClick = onSubmit,
+            enabled = !state.isLoading,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = PrimaryAgroGreen)
+        ) {
+            if (state.isLoading) {
+                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+            } else {
+                Text("Salvar nova senha", fontWeight = FontWeight.Bold)
             }
         }
     }

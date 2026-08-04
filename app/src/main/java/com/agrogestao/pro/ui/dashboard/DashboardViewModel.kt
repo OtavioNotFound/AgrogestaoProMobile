@@ -10,6 +10,7 @@ import com.agrogestao.pro.data.local.entities.TaskEntity
 import com.agrogestao.pro.data.local.entities.TaskStatus
 import com.agrogestao.pro.data.repository.AgroRepository
 import com.agrogestao.pro.domain.calculateFinancialSummary
+import com.agrogestao.pro.domain.accountPasswordError
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,13 +28,16 @@ data class DashboardUiState(
     val isSyncing: Boolean = false,
     val syncFeedback: String? = null,
     val isBackupBusy: Boolean = false,
-    val backupFeedback: String? = null
+    val backupFeedback: String? = null,
+    val isChangingPassword: Boolean = false,
+    val passwordFeedback: String? = null
 )
 
 class DashboardViewModel(private val repository: AgroRepository) : ViewModel() {
 
     private val syncActionState = MutableStateFlow(SyncActionState())
     private val backupActionState = MutableStateFlow(BackupActionState())
+    private val passwordActionState = MutableStateFlow(PasswordActionState())
 
     private val dashboardData = combine(
         repository.producerProfile,
@@ -57,13 +61,16 @@ class DashboardViewModel(private val repository: AgroRepository) : ViewModel() {
     val uiState: StateFlow<DashboardUiState> = combine(
         dashboardData,
         syncActionState,
-        backupActionState
-    ) { data, syncAction, backupAction ->
+        backupActionState,
+        passwordActionState
+    ) { data, syncAction, backupAction, passwordAction ->
         data.copy(
             isSyncing = syncAction.isSyncing,
             syncFeedback = syncAction.feedback,
             isBackupBusy = backupAction.isBusy,
-            backupFeedback = backupAction.feedback
+            backupFeedback = backupAction.feedback,
+            isChangingPassword = passwordAction.isBusy,
+            passwordFeedback = passwordAction.feedback
         )
     }.stateIn(
         scope = viewModelScope,
@@ -135,12 +142,46 @@ class DashboardViewModel(private val repository: AgroRepository) : ViewModel() {
         backupActionState.value = BackupActionState(feedback = message)
     }
 
+    fun changePassword(
+        newPassword: String,
+        confirmation: String,
+        onFinished: (Boolean) -> Unit
+    ) {
+        val validationError = accountPasswordError(newPassword, confirmation)
+        if (validationError != null) {
+            passwordActionState.value = PasswordActionState(feedback = validationError)
+            onFinished(false)
+            return
+        }
+        if (passwordActionState.value.isBusy) return
+        viewModelScope.launch {
+            passwordActionState.value = PasswordActionState(isBusy = true)
+            val result = repository.changePassword(newPassword)
+            passwordActionState.value = PasswordActionState(
+                feedback = result.fold(
+                    onSuccess = { "Senha alterada com segurança." },
+                    onFailure = { it.message ?: "Não foi possível trocar a senha." }
+                )
+            )
+            onFinished(result.isSuccess)
+        }
+    }
+
+    fun clearPasswordFeedback() {
+        if (!passwordActionState.value.isBusy) passwordActionState.value = PasswordActionState()
+    }
+
     private data class SyncActionState(
         val isSyncing: Boolean = false,
         val feedback: String? = null
     )
 
     private data class BackupActionState(
+        val isBusy: Boolean = false,
+        val feedback: String? = null
+    )
+
+    private data class PasswordActionState(
         val isBusy: Boolean = false,
         val feedback: String? = null
     )

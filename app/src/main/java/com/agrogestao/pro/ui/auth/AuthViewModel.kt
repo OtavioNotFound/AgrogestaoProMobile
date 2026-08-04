@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.agrogestao.pro.data.repository.AgroRepository
 import com.agrogestao.pro.data.repository.EmailConfirmationRequiredException
 import com.agrogestao.pro.data.repository.SignUpOutcome
+import com.agrogestao.pro.domain.accountPasswordError
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -36,8 +37,8 @@ class AuthViewModel(private val repository: AgroRepository) : ViewModel() {
             _uiState.value = AuthUiState(errorMessage = "Preencha o nome, e-mail e senha.")
             return
         }
-        if (password.length < 6) {
-            _uiState.value = AuthUiState(errorMessage = "A senha precisa ter pelo menos 6 caracteres.")
+        accountPasswordError(password)?.let { message ->
+            _uiState.value = AuthUiState(errorMessage = message)
             return
         }
 
@@ -111,6 +112,61 @@ class AuthViewModel(private val repository: AgroRepository) : ViewModel() {
                 }
             )
         }
+    }
+
+    fun requestPasswordRecovery(email: String) {
+        if (email.isBlank()) {
+            _uiState.value = AuthUiState(errorMessage = "Informe o e-mail da conta.")
+            return
+        }
+        viewModelScope.launch {
+            _uiState.value = AuthUiState(isLoading = true)
+            repository.requestPasswordRecovery(email).fold(
+                onSuccess = {
+                    _uiState.value = AuthUiState(
+                        infoMessage = "Se existir uma conta com esse e-mail, enviaremos um link para criar uma nova senha. Confira também a pasta de spam."
+                    )
+                },
+                onFailure = { error ->
+                    _uiState.value = AuthUiState(
+                        errorMessage = error.message ?: "Não foi possível enviar o e-mail de recuperação."
+                    )
+                }
+            )
+        }
+    }
+
+    fun completePasswordRecovery(
+        accessToken: String,
+        refreshToken: String,
+        expiresInSeconds: Long,
+        newPassword: String,
+        confirmation: String
+    ) {
+        accountPasswordError(newPassword, confirmation)?.let { message ->
+            _uiState.value = AuthUiState(errorMessage = message)
+            return
+        }
+        viewModelScope.launch {
+            _uiState.value = AuthUiState(isLoading = true)
+            repository.completePasswordRecovery(
+                accessToken,
+                refreshToken,
+                expiresInSeconds,
+                newPassword
+            ).fold(
+                onSuccess = { _uiState.value = AuthUiState(isSuccess = true) },
+                onFailure = { error ->
+                    _uiState.value = AuthUiState(
+                        errorMessage = error.message ?: "Não foi possível criar a nova senha."
+                    )
+                }
+            )
+        }
+    }
+
+    fun preparePasswordRecovery() {
+        _uiState.value = AuthUiState()
     }
 
     fun continueOffline(

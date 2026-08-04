@@ -51,9 +51,10 @@ O AgroGestão Pro ocupa uma posição intermediária: oferece dados estruturados
 
 | Área | Recursos atuais | Observações |
 | --- | --- | --- |
-| Conta | Cadastro, login, confirmação de e-mail por deep link, reenvio da confirmação, renovação de sessão e logout | Recuperação e troca de senha ainda estão no roadmap |
+| Conta | Cadastro, login, confirmação por deep link, reenvio, recuperação e troca de senha, renovação de sessão e logout | Recuperação usa link do Supabase e ainda precisa de validação live com conta temporária |
 | Uso local | Perfil local sem conta remota | Permite testar e trabalhar sem Supabase; a nuvem fica indisponível |
 | Painel | Resumo de entradas, saídas, saldo, talhões e tarefas pendentes | Dados reativos vindos do Room |
+| Modo Simples | Preferência persistente por conta, navegação com Início/Tarefas/Talhões/Mais e linguagem mais direta | O modo completo continua disponível e as funções essenciais permanecem acessíveis |
 | Talhões/safras | Cadastro, edição, exclusão, área, datas, progresso e situação de manejo | O nome da tabela histórica é `safras`, embora a interface use também o conceito de talhão |
 | Tarefas | Lista e quadro Kanban, três estados, filtros, edição, prazo, categoria e vínculo opcional com safra | Estados: a fazer, em progresso e concluído |
 | Lembretes | Notificações locais configuráveis de 0 a 7 dias antes, com horário escolhido | São isoladas por conta e revalidadas antes da entrega |
@@ -108,7 +109,7 @@ Essa separação existe, mas não é uma Clean Architecture estrita: `AgroReposi
 | --- | --- |
 | Kotlin 2.1 | Linguagem principal |
 | Jetpack Compose + Material 3 | Interface declarativa |
-| Navigation Compose | Navegação entre as seis rotas |
+| Navigation Compose | Navegação entre as sete rotas, com conjuntos distintos para os modos completo e simples |
 | Room 2.6.1 | Persistência local e migrations |
 | Kotlin Coroutines/Flow | Operações assíncronas e estado reativo |
 | WorkManager 2.10 | Sincronização e lembretes persistentes |
@@ -291,15 +292,16 @@ O código contém **64 testes automatizados**: 34 unitários e 30 instrumentados
 - geração, compartilhamento, integridade e caminho seguro do PDF;
 - estados reativos dos filtros;
 - testes de ida e volta no Supabase real.
+- preferência, isolamento por conta e regras de navegação do Modo Simples.
 
 ### Verificação executada em 4 de agosto de 2026
 
 | Comando | Resultado |
 | --- | --- |
-| `testDebugUnitTest` | 34 testes, 0 falhas, 0 erros, 0 ignorados |
+| `testDebugUnitTest` | 41 testes, 0 falhas, 0 erros, 0 ignorados |
 | `lintDebug` | 0 erros e 52 avisos |
 | `assembleDebug` | concluído com sucesso usando JDK 21 |
-| `connectedDebugAndroidTest` | não executado nesta rodada: nenhum dispositivo conectado |
+| `connectedDebugAndroidTest` | 32 testes executados no AVD API 36.1, 0 falhas e 2 ignorados por exigirem credenciais temporárias do Supabase |
 
 Os avisos do lint são principalmente dependências desatualizadas, alvo Android já não mais recente, ícone monocromático ausente e uma referência à permissão de notificações da API 33. Eles não impedem o build, mas devem ser triados antes de publicar.
 
@@ -368,7 +370,7 @@ Preço não foi usado como critério: o projeto ainda não define licença comer
 
 - Android apenas;
 - uma propriedade/perfil ativo por instalação;
-- sem recuperação ou troca de senha;
+- recuperação e troca de senha implementadas, ainda sem validação live do e-mail de recuperação nesta rodada;
 - sem membros, papéis ou aprovação de tarefas;
 - sem estoque, fornecedores, contas a pagar/receber, fiscal, máquinas, mapa, GPS, imagens, pragas ou rebanho completo;
 - sem importação/exportação CSV;
@@ -382,7 +384,7 @@ Preço não foi usado como critério: o projeto ainda não define licença comer
 
 - `AgroRepository` e telas grandes aumentam custo de manutenção e teste;
 - versão release está com minificação desabilitada e não há configuração documentada de assinatura/AAB para loja;
-- não há CI, política de versionamento formal, `LICENSE`, `CONTRIBUTING` ou processo de revisão neste diretório;
+- há CI para testes, lint, APK e padrões de segredos; ainda faltam política de versionamento formal, `LICENSE`, `CONTRIBUTING` e processo de revisão;
 - lint ainda possui 52 avisos e várias dependências estão atrás das versões atuais;
 - `targetSdk 35` já é sinalizado pelo lint como não sendo o alvo mais recente; requisitos da Play Store devem ser verificados antes da publicação;
 - ausência do schema Room v1 cria risco de migração destrutiva;
@@ -395,8 +397,8 @@ Preço não foi usado como critério: o projeto ainda não define licença comer
 
 O plano detalhado existente está em [`PROXIMAS_ALTERACOES.md`](PROXIMAS_ALTERACOES.md). A ordem recomendada, considerando risco e valor, é:
 
-1. **Recuperação de acesso:** esqueci a senha, troca de senha, recriação segura da conta e mensagens de autenticação.
-2. **Estabilização para publicação:** corrigir avisos relevantes do lint, atualizar alvo/dependências com testes, configurar release assinada/AAB e CI.
+1. **Validar recuperação de acesso:** executar o e-mail e a troca de senha com conta temporária real, incluindo link expirado e limite de envio.
+2. **Estabilização para publicação:** eliminar a migration v1 destrutiva, migrar dinheiro para centavos exatos, corrigir avisos relevantes, atualizar alvo/dependências e configurar release assinada/AAB.
 3. **Privacidade e segurança operacional:** política de privacidade, retenção, revisão do Android Auto Backup, criptografia dos dados locais conforme o risco e teste de segurança.
 4. **Refatoração:** separar repositórios de autenticação, sincronização, backup e relatórios; quebrar telas grandes; introduzir interfaces e injeção de dependências.
 5. **Desempenho:** paginação, consultas para históricos maiores, telemetria consentida e controle de tentativas de sincronização.
@@ -410,11 +412,12 @@ O plano detalhado existente está em [`PROXIMAS_ALTERACOES.md`](PROXIMAS_ALTERAC
 appAgroGestao/
 ├── app/
 │   ├── src/main/                 # Código Android e recursos
-│   ├── src/test/                 # 34 testes unitários
-│   ├── src/androidTest/          # 30 testes instrumentados
+│   ├── src/test/                 # 41 testes unitários
+│   ├── src/androidTest/          # 32 testes instrumentados
 │   ├── schemas/                  # Schemas Room exportados
 │   └── build.gradle.kts          # Configuração do módulo
 ├── gradle/                       # Wrapper e catálogo de versões
+├── .github/workflows/            # CI: testes, lint, segredos e APK debug
 ├── supabase/
 │   ├── migrations/               # Schema, triggers, RLS e associações
 │   └── README.md                 # Configuração do backend

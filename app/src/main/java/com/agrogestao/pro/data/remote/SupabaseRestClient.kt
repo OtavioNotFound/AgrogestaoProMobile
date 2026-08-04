@@ -95,6 +95,56 @@ object SupabaseRestClient {
         }
     }
 
+    suspend fun requestPasswordRecovery(email: String): SupabaseActionResponse {
+        if (!SupabaseConfig.isConfigured) {
+            return SupabaseActionResponse(
+                success = false,
+                errorMessage = "A conexão com a nuvem ainda não foi configurada neste aplicativo."
+            )
+        }
+        return try {
+            val redirect = URLEncoder.encode(
+                SupabaseConfig.AUTH_CALLBACK_URL,
+                StandardCharsets.UTF_8.name()
+            )
+            val response = request(
+                method = "POST",
+                path = "/auth/v1/recover?redirect_to=$redirect",
+                body = JSONObject().apply { put("email", email) }
+            )
+            Log.d(TAG, "requestPasswordRecovery concluído com HTTP ${response.code}")
+            response.toActionResponse()
+        } catch (error: Exception) {
+            Log.e(TAG, "Falha de rede na recuperação de senha", error)
+            SupabaseActionResponse(false, connectionMessage(error))
+        }
+    }
+
+    suspend fun updatePassword(
+        accessToken: String,
+        newPassword: String
+    ): SupabaseActionResponse {
+        if (!SupabaseConfig.isConfigured) {
+            return SupabaseActionResponse(
+                success = false,
+                errorMessage = "A conexão com a nuvem ainda não foi configurada neste aplicativo."
+            )
+        }
+        return try {
+            val response = request(
+                method = "PUT",
+                path = "/auth/v1/user",
+                accessToken = accessToken,
+                body = JSONObject().apply { put("password", newPassword) }
+            )
+            Log.d(TAG, "updatePassword concluído com HTTP ${response.code}")
+            response.toActionResponse()
+        } catch (error: Exception) {
+            Log.e(TAG, "Falha de rede ao atualizar senha", error)
+            SupabaseActionResponse(false, connectionMessage(error))
+        }
+    }
+
     suspend fun signIn(email: String, password: String): SupabaseAuthResponse {
         if (!SupabaseConfig.isConfigured) return missingConfigurationAuthResult()
         return try {
@@ -367,7 +417,7 @@ object SupabaseRestClient {
             "email_not_confirmed" -> return "Seu e-mail ainda não foi confirmado. Abra o e-mail recebido e toque no botão de confirmação."
             "invalid_credentials" -> return "E-mail ou senha incorretos."
             "user_already_exists" -> return "Já existe uma conta com este e-mail. Use a opção Entrar."
-            "over_email_send_rate_limit" -> return "Aguarde um pouco antes de pedir outro e-mail de confirmação."
+            "over_email_send_rate_limit" -> return "Aguarde um pouco antes de pedir outro e-mail."
             "email_address_invalid" -> return "Informe um endereço de e-mail válido."
             "weak_password" -> return "Escolha uma senha mais forte."
         }
@@ -378,7 +428,7 @@ object SupabaseRestClient {
             .ifBlank { "Falha na nuvem (código $code)." }
         return when {
             rawMessage.contains("email rate limit", ignoreCase = true) ->
-                "Aguarde um pouco antes de pedir outro e-mail de confirmação."
+                "Aguarde um pouco antes de pedir outro e-mail."
             rawMessage.contains("email address", ignoreCase = true) &&
                 rawMessage.contains("invalid", ignoreCase = true) ->
                 "Informe um endereço de e-mail válido."

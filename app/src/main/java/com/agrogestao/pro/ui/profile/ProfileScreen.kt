@@ -34,8 +34,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,6 +50,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.agrogestao.pro.BuildConfig
@@ -80,13 +83,18 @@ fun ProfileScreen(
     onBack: () -> Unit,
     onNavigateToTasks: () -> Unit,
     onNavigateToReports: () -> Unit,
-    onNavigateToBackup: () -> Unit
+    onNavigateToBackup: () -> Unit,
+    simpleMode: Boolean = false,
+    onSimpleModeChange: (Boolean) -> Unit = {}
 ) {
     val dashboard by dashboardViewModel.uiState.collectAsState()
     val report by reportViewModel.uiState.collectAsState()
     val producer = dashboard.producer
     var showEditProfile by remember { mutableStateOf(false) }
     var showLogout by remember { mutableStateOf(false) }
+    var showChangePassword by remember { mutableStateOf(false) }
+    var newPassword by remember { mutableStateOf("") }
+    var passwordConfirmation by remember { mutableStateOf("") }
     var infoDialog by remember { mutableStateOf<Pair<String, String>?>(null) }
     val producerName = producer?.nomeProdutor.orEmpty().ifBlank { "Produtor" }
     val farmName = producer?.nomePropriedade.orEmpty().ifBlank { "Propriedade não informada" }
@@ -193,9 +201,40 @@ fun ProfileScreen(
             }
 
             Spacer(Modifier.height(22.dp))
+            SectionLabel("Aparência")
+            PrototypeCard {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSimpleModeChange(!simpleMode) }
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SmallIconTile(Icons.Default.Agriculture, AgroGreen100)
+                    Column(modifier = Modifier.weight(1f).padding(horizontal = 11.dp)) {
+                        Text("Modo simples", color = TextDark, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "Botões maiores e somente os caminhos principais",
+                            color = TextMuted,
+                            fontSize = 10.5.sp,
+                            lineHeight = 14.sp
+                        )
+                    }
+                    Switch(checked = simpleMode, onCheckedChange = onSimpleModeChange)
+                }
+            }
+
+            Spacer(Modifier.height(22.dp))
             SectionLabel("Dados e segurança")
             PrototypeCard {
                 MenuListItem(Icons.Default.Edit, "Meus dados", "Nome, propriedade e documentos") { showEditProfile = true }
+                HorizontalDivider(color = CardBorder, modifier = Modifier.padding(start = 59.dp))
+                MenuListItem(Icons.Default.Lock, "Trocar senha", "Crie uma nova senha para sua conta") {
+                    dashboardViewModel.clearPasswordFeedback()
+                    newPassword = ""
+                    passwordConfirmation = ""
+                    showChangePassword = true
+                }
                 HorizontalDivider(color = CardBorder, modifier = Modifier.padding(start = 59.dp))
                 MenuListItem(Icons.Default.Backup, "Cópia de segurança", "Salvar ou restaurar um backup protegido") { onNavigateToBackup() }
                 HorizontalDivider(color = CardBorder, modifier = Modifier.padding(start = 59.dp))
@@ -256,6 +295,63 @@ fun ProfileScreen(
                 ) { Text("Sair") }
             },
             dismissButton = { TextButton(onClick = { showLogout = false }) { Text("Cancelar") } }
+        )
+    }
+    if (showChangePassword) {
+        AlertDialog(
+            onDismissRequest = { if (!dashboard.isChangingPassword) showChangePassword = false },
+            title = { Text("Trocar senha", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text("Use pelo menos 8 caracteres. A senha é enviada somente pela conexão segura do Supabase.")
+                    OutlinedTextField(
+                        value = newPassword,
+                        onValueChange = { newPassword = it },
+                        label = { Text("Nova senha") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
+                    )
+                    OutlinedTextField(
+                        value = passwordConfirmation,
+                        onValueChange = { passwordConfirmation = it },
+                        label = { Text("Repita a nova senha") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    )
+                    dashboard.passwordFeedback?.let {
+                        Text(
+                            it,
+                            color = if (it.startsWith("Senha alterada")) StatusGreen else StatusOrange,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 10.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        dashboardViewModel.changePassword(newPassword, passwordConfirmation) { success ->
+                            if (success) showChangePassword = false
+                        }
+                    },
+                    enabled = !dashboard.isChangingPassword
+                ) {
+                    if (dashboard.isChangingPassword) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text("Salvar senha")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showChangePassword = false },
+                    enabled = !dashboard.isChangingPassword
+                ) { Text("Cancelar") }
+            }
         )
     }
     infoDialog?.let { (title, message) ->

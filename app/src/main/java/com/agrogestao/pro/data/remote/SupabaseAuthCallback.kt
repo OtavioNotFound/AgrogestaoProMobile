@@ -15,6 +15,12 @@ data class SupabaseAuthCallback(
         get() = !accessToken.isNullOrBlank() && !refreshToken.isNullOrBlank()
 }
 
+data class PasswordRecoverySession(
+    val accessToken: String,
+    val refreshToken: String,
+    val expiresInSeconds: Long
+)
+
 object SupabaseAuthCallbackParser {
     private const val CALLBACK_SCHEME = "com.agrogestao.pro"
     private const val CALLBACK_HOST = "auth"

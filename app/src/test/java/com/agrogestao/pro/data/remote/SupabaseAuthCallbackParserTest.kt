@@ -36,6 +36,18 @@ class SupabaseAuthCallbackParserTest {
     }
 
     @Test
+    fun identifiesPasswordRecoverySession() {
+        val callback = SupabaseAuthCallbackParser.parse(
+            "com.agrogestao.pro://auth/callback#access_token=recovery-access&" +
+                "refresh_token=recovery-refresh&expires_in=900&type=recovery"
+        )
+
+        assertEquals("recovery", callback?.type)
+        assertTrue(callback?.hasSession == true)
+        assertEquals(900L, callback?.expiresInSeconds)
+    }
+
+    @Test
     fun acceptsOnlyTheExactAppCallback() {
         assertNotNull(
             SupabaseAuthCallbackParser.parse(

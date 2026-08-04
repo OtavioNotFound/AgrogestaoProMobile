@@ -1,0 +1,34 @@
+# Local Android SDK and private backend configuration
+local.properties
+supabase.md
+keystore.properties
+*.jks
+*.keystore
+
+# Generated build output
+.gradle/
+.kotlin/
+build/
+app/build/
+.cxx/
+.externalNativeBuild/
+
+# IDE and local tooling
+.idea/
+*.iml
+captures/
+tmp/
+
+# Binary release artifacts
+releases/
+*.apk
+*.aab
+*.apks
+*.idsig
+
+# Logs and operating-system files
+*.log
+build_log.txt
+.DS_Store
+Thumbs.db
+Desktop.ini

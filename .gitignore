@@ -2,7 +2,6 @@
 local.properties
 !.env.example
 !local.properties.example
-supabase.md
 keystore.properties
 *.jks
 *.keystore
@@ -51,3 +50,7 @@ Desktop.ini
 *.xls
 *.xlsx
 *.pdf
+
+# Root documentation: publish only the main README
+/*.md
+!/README.md

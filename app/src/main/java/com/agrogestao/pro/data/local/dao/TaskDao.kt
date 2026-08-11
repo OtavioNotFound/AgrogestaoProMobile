@@ -17,6 +17,9 @@ interface TaskDao {
     @Query("SELECT * FROM tarefas WHERE ownerUserId = :ownerUserId AND syncStatus != :syncedStatus")
     suspend fun getPendingSync(ownerUserId: String, syncedStatus: String): List<TaskEntity>
 
+    @Query("SELECT COUNT(*) FROM tarefas WHERE ownerUserId = :ownerUserId AND syncStatus != :syncedStatus")
+    fun observePendingSyncCount(ownerUserId: String, syncedStatus: String): Flow<Int>
+
     @Query("SELECT * FROM tarefas WHERE ownerUserId = :ownerUserId")
     suspend fun getOwnedRows(ownerUserId: String): List<TaskEntity>
 

@@ -1,7 +1,49 @@
 # Plano das próximas alterações
 
-**Ponto de partida:** AgroGestão Pro `1.1.0-beta8`<br>
-**Atualizado em:** 02/08/2026
+**Estado atual:** AgroGestão Pro `1.2.0-beta14`<br>
+**Atualizado em:** 08/08/2026
+
+## Ciclo implementado em 08/08/2026 — sincronização Supabase
+
+- Backend migrado do esquema legado por e-mail para isolamento moderno por `user_id`.
+- Os 11 perfis e a safra existentes foram copiados; as quatro tabelas legadas continuam intactas como backup recuperável.
+- Migração corrigida para instalações legadas que já usavam UUID e guardavam datas como texto.
+- Tarefas e lançamentos financeiros agora podem manter a associação com a safra entre aparelhos.
+- O app renova a sessão uma vez quando um token é recusado antes do vencimento previsto.
+- O selo da nuvem considera perfil, safras, tarefas e financeiro, sem informar “atualizada” enquanto houver item pendente.
+- Logs de envio identificam a categoria que falhou sem registrar tokens ou conteúdo do produtor.
+- Validação: 55 testes unitários e 40 instrumentados sem falhas; 2 testes live ignorados sem credenciais temporárias; lint com 0 erros; atualização beta13 → beta14 preservou exatamente o banco local.
+
+APK gerado: `AgroGestaoPro-1.2.0-beta14-sync-nuvem.apk`.
+
+## Ciclo implementado em 08/08/2026 — registro completo sem complicação
+
+- Cada opção do registro diário agora pergunta claramente o que foi plantado, colhido, comprado, vendido, pago, recebido ou usado.
+- Sugestões grandes permitem selecionar respostas comuns; o campo de texto continua disponível para qualquer outra opção.
+- Compras, vendas, pagamentos e recebimentos separam a pergunta sobre o item da pergunta sobre o valor.
+- Histórico, caixa e confirmação final exibem a resposta do produtor, evitando registros genéricos.
+- Respostas recentes do próprio usuário aparecem primeiro nas próximas atualizações, reduzindo memória e digitação.
+- Depois de salvar, o produtor pode escolher “Registrar outra”, “Terminei” ou “Desfazer último registro”.
+- A tela Mais ganhou “Como usar”, com três instruções curtas e funcionamento offline explicado.
+- Fluxos de colheita e compra foram percorridos no emulador; as telas novas também foram verificadas com fonte do Android em 130%.
+- Validação: 55 testes unitários e 40 instrumentados, sem falhas; 2 testes live ignorados sem credenciais temporárias; lint sem erros.
+
+O APK `1.2.0-beta13` foi gerado ao final dessa rodada.
+
+## Ciclo implementado em 07/08/2026 — rotina diária simples
+
+- Modo Simples recomendado por padrão para novos usuários, preservando a escolha de cada conta.
+- Tela Hoje reduzida à prioridade mais urgente, resumo do dia e três destinos explicados em linguagem direta.
+- Botão principal renomeado para “Atualizar meu dia”, com alvo ampliado e estimativa visível de cerca de 30 segundos.
+- Registro guiado de plantio, colheita, compra, venda, pagamento, recebimento, uso de insumo, problema e outra atividade.
+- Data automática e associação opcional a um terreno; cada pergunta fica em uma etapa separada.
+- Um único registro alimenta o histórico de tarefas e, quando há valor, também o caixa; plantio e colheita atualizam o terreno escolhido.
+- Gravação local composta antes da nuvem, evitando registro pela metade e repetição quando não há internet.
+- Confirmação clara, opção de desfazer e preservação do que foi digitado quando ocorre erro.
+- Navegação e linguagem do modo simples atualizadas de “Talhões/Lançamentos” para “Terrenos/Dinheiro”.
+- Validação: 51 testes unitários e 40 instrumentados, sem falhas; 2 testes live ignorados sem credenciais temporárias; lint sem erros.
+
+Esse ciclo foi visualmente aprovado antes da continuação autônoma solicitada pelo usuário.
 
 ## Ciclo concluído em 04/08/2026 — Modo Simples
 
@@ -111,6 +153,21 @@ Alterações planejadas:
 - Incluir identificação da versão do aplicativo e data de geração nos arquivos.
 - Melhorar o histórico de relatórios e a verificação de integridade.
 - Revisar textos de consentimento, privacidade e limitações dos relatórios.
+
+## Ciclos beta10–beta12 implementados em 04/08/2026
+
+- valores financeiros persistidos e somados em centavos inteiros, com backup v2 compatível com backup v1;
+- migration `9 -> 10` e teste de arredondamento/atualização;
+- migration assistida `1 -> 2`, sem fallback destrutivo silencioso;
+- previsão Open-Meteo por município somente após consentimento, sem GPS, com cache offline, fonte, horário, revogação e alertas informativos;
+- CSV financeiro do período selecionado com versão, geração, propriedade, centavos, estado de sincronização e IDs;
+- trilha local e isolada por conta para conflitos de sincronização, migration `10 -> 11` e tela de consulta;
+- assinatura de release configurável por segredo local/ambiente, AAB reproduzível e checklist de publicação;
+- aviso de privacidade operacional para piloto e gates externos explicitados;
+- painel “Hoje”, atalho central de registro e ocultação persistente dos valores financeiros por conta;
+- validação: 46 testes unitários e 36 instrumentados sem falhas, dois testes live ignorados; lint com zero erros; APK e AAB gerados.
+
+Os critérios que dependem de terceiros permanecem gates de release: e-mail real de recuperação, banco v1 real, revisão jurídica/agronômica, piloto com produtores e publicação/assinatura com a chave do responsável.
 
 ## Verificação obrigatória antes de cada APK
 

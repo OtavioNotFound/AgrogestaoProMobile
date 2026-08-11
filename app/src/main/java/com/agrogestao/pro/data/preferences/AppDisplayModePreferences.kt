@@ -31,13 +31,46 @@ class AppDisplayModePreferences(context: Context) {
         awaitClose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }.conflate()
 
+    fun observeLoginChoice(): Flow<Boolean> = callbackFlow {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, changedKey ->
+            if (changedKey == LOGIN_CHOICE_KEY) trySend(readLoginChoice())
+        }
+        trySend(readLoginChoice())
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        awaitClose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }.conflate()
+
     fun read(ownerUserId: String): Boolean =
-        ownerUserId.isNotBlank() && preferences.getBoolean(key(ownerUserId), false)
+        ownerUserId.isNotBlank() && preferences.getBoolean(key(ownerUserId), true)
 
     fun save(ownerUserId: String, simpleMode: Boolean): Boolean {
         require(ownerUserId.isNotBlank()) { "Conta ativa não encontrada." }
         return preferences.edit().putBoolean(key(ownerUserId), simpleMode).commit()
     }
+
+    fun readLoginChoice(): Boolean = preferences.getBoolean(LOGIN_CHOICE_KEY, true)
+
+    fun saveLoginChoice(simpleMode: Boolean): Boolean =
+        preferences.edit().putBoolean(LOGIN_CHOICE_KEY, simpleMode).commit()
+
+    fun stageLoginChoice(simpleMode: Boolean): Boolean = preferences.edit()
+        .putBoolean(LOGIN_CHOICE_KEY, simpleMode)
+        .putBoolean(LOGIN_CHOICE_PENDING_KEY, true)
+        .commit()
+
+    fun applyStagedLoginChoice(ownerUserId: String): Boolean {
+        if (ownerUserId.isBlank() || !preferences.getBoolean(LOGIN_CHOICE_PENDING_KEY, false)) {
+            return false
+        }
+        val simpleMode = readLoginChoice()
+        return preferences.edit()
+            .putBoolean(key(ownerUserId), simpleMode)
+            .remove(LOGIN_CHOICE_PENDING_KEY)
+            .commit()
+    }
+
+    fun clearStagedLoginChoice(): Boolean =
+        preferences.edit().remove(LOGIN_CHOICE_PENDING_KEY).commit()
 
     internal fun clearForTests(): Boolean = preferences.edit().clear().commit()
 
@@ -50,5 +83,7 @@ class AppDisplayModePreferences(context: Context) {
 
     private companion object {
         const val PREFERENCES_NAME = "agrogestao_display_mode"
+        const val LOGIN_CHOICE_KEY = "login_simple_mode_choice"
+        const val LOGIN_CHOICE_PENDING_KEY = "login_simple_mode_pending"
     }
 }

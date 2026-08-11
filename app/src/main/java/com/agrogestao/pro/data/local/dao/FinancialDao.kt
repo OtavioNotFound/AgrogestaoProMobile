@@ -16,6 +16,9 @@ interface FinancialDao {
     @Query("SELECT * FROM financeiro WHERE ownerUserId = :ownerUserId AND syncStatus != :syncedStatus")
     suspend fun getPendingSync(ownerUserId: String, syncedStatus: String): List<FinancialEntity>
 
+    @Query("SELECT COUNT(*) FROM financeiro WHERE ownerUserId = :ownerUserId AND syncStatus != :syncedStatus")
+    fun observePendingSyncCount(ownerUserId: String, syncedStatus: String): Flow<Int>
+
     @Query("SELECT * FROM financeiro WHERE ownerUserId = :ownerUserId")
     suspend fun getOwnedRows(ownerUserId: String): List<FinancialEntity>
 

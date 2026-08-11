@@ -16,6 +16,9 @@ interface CropDao {
     @Query("SELECT * FROM safras WHERE ownerUserId = :ownerUserId AND syncStatus != :syncedStatus")
     suspend fun getPendingSync(ownerUserId: String, syncedStatus: String): List<CropEntity>
 
+    @Query("SELECT COUNT(*) FROM safras WHERE ownerUserId = :ownerUserId AND syncStatus != :syncedStatus")
+    fun observePendingSyncCount(ownerUserId: String, syncedStatus: String): Flow<Int>
+
     @Query("SELECT * FROM safras WHERE ownerUserId = :ownerUserId")
     suspend fun getOwnedRows(ownerUserId: String): List<CropEntity>
 

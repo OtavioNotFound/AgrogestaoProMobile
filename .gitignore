@@ -1,5 +1,7 @@
 # Local Android SDK and private backend configuration
 local.properties
+!.env.example
+!local.properties.example
 supabase.md
 keystore.properties
 *.jks
@@ -32,3 +34,8 @@ build_log.txt
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Office locks and generated presentation inspection data
+~$*
+.~lock.*#
+*.inspect.ndjson

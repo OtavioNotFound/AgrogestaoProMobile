@@ -11,6 +11,7 @@ import com.agrogestao.pro.data.local.entities.FinancialEntity
 import com.agrogestao.pro.data.local.entities.TaskEntity
 import com.agrogestao.pro.data.local.entities.TaskStatus
 import com.agrogestao.pro.data.local.entities.TransactionType
+import com.agrogestao.pro.domain.moneyToCents
 import com.agrogestao.pro.data.remote.SupabaseConfig
 import com.agrogestao.pro.data.repository.AgroRepository
 import com.agrogestao.pro.data.security.SecureSessionStore
@@ -96,7 +97,7 @@ class LiveSupabaseSyncTest {
             firstRepository.updateTransaction(
                 transaction.copy(
                     descricao = "Venda teste editada",
-                    valor = 225.75,
+                    valorCentavos = moneyToCents(225.75),
                     tipo = TransactionType.ENTRADA,
                     categoria = "Venda"
                 )

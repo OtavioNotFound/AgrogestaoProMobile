@@ -8,6 +8,8 @@ import com.agrogestao.pro.data.local.entities.CropEntity
 import com.agrogestao.pro.data.local.entities.ProducerEntity
 import com.agrogestao.pro.data.local.entities.ReportHistoryEntity
 import com.agrogestao.pro.data.local.entities.ReportConsentEntity
+import com.agrogestao.pro.data.export.AgroCsvExporter
+import com.agrogestao.pro.data.export.FinancialCsvExport
 import com.agrogestao.pro.data.report.CreditReportArchiveStore
 import com.agrogestao.pro.data.report.ReportIntegrityStatus
 import com.agrogestao.pro.data.repository.AgroRepository
@@ -87,6 +89,19 @@ class RelatorioCreditoViewModel(private val repository: AgroRepository) : ViewMo
 
     fun updateReportPeriod(fromDate: String, toDate: String) {
         reportCriteria.value = CreditReportCriteria(fromDate, toDate)
+    }
+
+    fun exportCurrentPeriodCsv(): ByteArray {
+        val state = uiState.value
+        val report = requireNotNull(state.report) { "Escolha um período válido antes de exportar." }
+        return AgroCsvExporter.encode(
+            FinancialCsvExport(
+                producer = state.producer,
+                fromDate = state.reportCriteria.fromDate,
+                toDate = state.reportCriteria.toDate,
+                transactions = report.transactions
+            )
+        )
     }
 
     suspend fun grantConsentAndGeneratePdf(

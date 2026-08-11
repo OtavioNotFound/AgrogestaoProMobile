@@ -9,6 +9,7 @@ import com.agrogestao.pro.data.local.entities.TransactionType
 import com.agrogestao.pro.data.repository.AgroRepository
 import com.agrogestao.pro.domain.FinancialFilterCriteria
 import com.agrogestao.pro.domain.calculateFinancialSummary
+import com.agrogestao.pro.domain.moneyToCents
 import com.agrogestao.pro.domain.filterTransactions
 import com.agrogestao.pro.domain.financialFilterCategories
 import kotlinx.coroutines.flow.SharingStarted
@@ -103,7 +104,7 @@ class SafrasViewModel(private val repository: AgroRepository) : ViewModel() {
                 cropCloudId = cropCloudId
             )).copy(
                 descricao = descricao.trim(),
-                valor = valor,
+                valorCentavos = moneyToCents(valor),
                 tipo = tipo,
                 data = data,
                 categoria = categoria.trim(),

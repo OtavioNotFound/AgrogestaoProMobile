@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -25,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -37,6 +39,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.agrogestao.pro.data.repository.AgroRepository
 import com.agrogestao.pro.data.preferences.AppDisplayModePreferences
+import com.agrogestao.pro.data.preferences.FinancialPrivacyPreferences
 import com.agrogestao.pro.data.remote.PasswordRecoverySession
 import com.agrogestao.pro.data.reminders.DisabledTaskReminderGateway
 import com.agrogestao.pro.data.reminders.TaskReminderGateway
@@ -57,6 +60,8 @@ import com.agrogestao.pro.ui.safras.SafrasViewModel
 import com.agrogestao.pro.ui.safras.SafrasViewModelFactory
 import com.agrogestao.pro.ui.profile.ProfileScreen
 import com.agrogestao.pro.ui.profile.MoreScreen
+import com.agrogestao.pro.ui.weather.WeatherScreen
+import com.agrogestao.pro.ui.sync.SyncConflictScreen
 import com.agrogestao.pro.ui.theme.PrimaryAgroGreen
 import com.agrogestao.pro.ui.theme.SurfaceCard
 import com.agrogestao.pro.ui.theme.TextMuted
@@ -69,6 +74,8 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object Relatorio : Screen("relatorio", "Custos", Icons.Default.Description)
     object Profile : Screen("profile", "Perfil", Icons.Default.Person)
     object More : Screen("more", "Mais", Icons.Default.Menu)
+    object Weather : Screen("weather", "Clima", Icons.Default.Cloud)
+    object SyncConflicts : Screen("sync_conflicts", "Conflitos", Icons.Default.Cloud)
 }
 
 @Composable
@@ -83,6 +90,7 @@ fun MainAppNavigation(
 ) {
     val navController = rememberNavController()
     var openBackupRequested by remember { mutableStateOf(false) }
+    var openFinancialRequested by remember { mutableStateOf(false) }
 
     val authViewModel: AuthViewModel = viewModel(factory = AuthViewModelFactory(repository))
     val dashboardViewModel: DashboardViewModel = viewModel(factory = DashboardViewModelFactory(repository))
@@ -98,6 +106,16 @@ fun MainAppNavigation(
     val isAuthRoute = currentRoute == Screen.Auth.route
     val producer by repository.producerProfile.collectAsState(initial = null)
     val ownerUserId by repository.activeOwnerUserId.collectAsState(initial = "")
+    val loginChoiceFlow = remember { displayModePreferences.observeLoginChoice() }
+    val loginSimpleMode by loginChoiceFlow.collectAsState(
+        initial = displayModePreferences.readLoginChoice()
+    )
+    val context = LocalContext.current
+    val financialPrivacyPreferences = remember { FinancialPrivacyPreferences(context) }
+    val hiddenValuesFlow = remember(ownerUserId) { financialPrivacyPreferences.observe(ownerUserId) }
+    val hideFinancialValues by hiddenValuesFlow.collectAsState(
+        initial = financialPrivacyPreferences.read(ownerUserId)
+    )
     val simpleModeFlow = remember(ownerUserId) { displayModePreferences.observe(ownerUserId) }
     val simpleMode by simpleModeFlow.collectAsState(
         initial = displayModePreferences.read(ownerUserId)
@@ -116,6 +134,13 @@ fun MainAppNavigation(
     val selectedBottomRoute = displayModeSelectedRoute(simpleMode, currentRoute)
     val setSimpleMode: (Boolean) -> Unit = { enabled ->
         if (ownerUserId.isNotBlank()) displayModePreferences.save(ownerUserId, enabled)
+    }
+    val scaleForSimpleMode = if (isAuthRoute) loginSimpleMode else simpleMode
+
+    LaunchedEffect(ownerUserId) {
+        if (ownerUserId.isNotBlank()) {
+            displayModePreferences.applyStagedLoginChoice(ownerUserId)
+        }
     }
 
     LaunchedEffect(producer?.isLoggedIn, currentRoute, requestedRoute) {
@@ -139,8 +164,9 @@ fun MainAppNavigation(
         }
     }
 
-    Scaffold(
-        bottomBar = {
+    DisplayModeScale(simpleMode = scaleForSimpleMode) {
+        Scaffold(
+            bottomBar = {
             if (!isAuthRoute) {
                 Surface(
                     shadowElevation = 2.dp,
@@ -153,17 +179,22 @@ fun MainAppNavigation(
                     ) {
                         items.forEach { screen ->
                             val selected = selectedBottomRoute == screen.route
+                            val displayTitle = if (simpleMode && screen == Screen.Safras) {
+                                "Terrenos"
+                            } else {
+                                screen.title
+                            }
                             NavigationBarItem(
                                 icon = {
                                     Icon(
                                         imageVector = screen.icon,
-                                        contentDescription = screen.title,
+                                        contentDescription = displayTitle,
                                         tint = if (selected) PrimaryAgroGreen else TextMuted
                                     )
                                 },
                                 label = {
                                     Text(
-                                        text = screen.title,
+                                        text = displayTitle,
                                         fontSize = if (simpleMode) 12.sp else 10.sp,
                                         fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                                         color = if (selected) PrimaryAgroGreen else TextMuted
@@ -193,16 +224,20 @@ fun MainAppNavigation(
                     }
                 }
             }
-        }
-    ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = Screen.Auth.route,
-            modifier = Modifier.padding(innerPadding)
-        ) {
+            }
+        ) { innerPadding ->
+            NavHost(
+                navController = navController,
+                startDestination = Screen.Auth.route,
+                modifier = Modifier.padding(innerPadding)
+            ) {
             composable(Screen.Auth.route) {
                 AuthScreen(
                     viewModel = authViewModel,
+                    simpleModeChoice = loginSimpleMode,
+                    onSimpleModeChoiceChange = displayModePreferences::saveLoginChoice,
+                    onDisplayModeSubmitted = displayModePreferences::stageLoginChoice,
+                    onDisplayModeSubmissionFailed = displayModePreferences::clearStagedLoginChoice,
                     passwordRecoverySession = passwordRecoverySession,
                     onPasswordRecoveryConsumed = onPasswordRecoveryConsumed,
                     onAuthSuccess = {
@@ -219,7 +254,15 @@ fun MainAppNavigation(
                     openBackupRequested = openBackupRequested,
                     onBackupRequestHandled = { openBackupRequested = false },
                     onNavigateToTasks = { navController.navigate(Screen.Kanban.route) },
-                    onNavigateToSafras = { navController.navigate(Screen.Safras.route) }
+                    onNavigateToSafras = { navController.navigate(Screen.Safras.route) },
+                    onNavigateToFinance = {
+                        openFinancialRequested = true
+                        navController.navigate(Screen.Safras.route)
+                    },
+                    hideFinancialValues = hideFinancialValues,
+                    onHideFinancialValuesChange = { hidden ->
+                        if (ownerUserId.isNotBlank()) financialPrivacyPreferences.save(ownerUserId, hidden)
+                    }
                 )
             }
             composable(Screen.Kanban.route) {
@@ -231,13 +274,18 @@ fun MainAppNavigation(
             composable(Screen.Safras.route) {
                 SafrasScreen(
                     viewModel = safrasViewModel,
-                    onBack = { navController.navigate(Screen.Dashboard.route) { launchSingleTop = true } }
+                    onBack = { navController.navigate(Screen.Dashboard.route) { launchSingleTop = true } },
+                    simpleMode = simpleMode,
+                    openFinanceRequested = openFinancialRequested,
+                    onFinanceRequestHandled = { openFinancialRequested = false },
+                    hideFinancialValues = hideFinancialValues
                 )
             }
             composable(Screen.Relatorio.route) {
                 RelatorioCreditoScreen(
                     viewModel = relatorioViewModel,
-                    onBack = { navController.navigate(Screen.Dashboard.route) { launchSingleTop = true } }
+                    onBack = { navController.navigate(Screen.Dashboard.route) { launchSingleTop = true } },
+                    hideFinancialValues = hideFinancialValues
                 )
             }
             composable(Screen.Profile.route) {
@@ -251,6 +299,8 @@ fun MainAppNavigation(
                         openBackupRequested = true
                         navController.navigate(Screen.Dashboard.route) { launchSingleTop = true }
                     },
+                    onNavigateToWeather = { navController.navigate(Screen.Weather.route) },
+                    onNavigateToConflicts = { navController.navigate(Screen.SyncConflicts.route) },
                     simpleMode = simpleMode,
                     onSimpleModeChange = setSimpleMode
                 )
@@ -272,8 +322,20 @@ fun MainAppNavigation(
                     onNavigateToBackup = {
                         openBackupRequested = true
                         navController.navigate(Screen.Dashboard.route) { launchSingleTop = true }
-                    }
+                    },
+                    onNavigateToWeather = { navController.navigate(Screen.Weather.route) },
+                    onNavigateToConflicts = { navController.navigate(Screen.SyncConflicts.route) }
                 )
+            }
+            composable(Screen.Weather.route) {
+                WeatherScreen(
+                    repository = repository,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Screen.SyncConflicts.route) {
+                SyncConflictScreen(repository = repository, onBack = { navController.popBackStack() })
+            }
             }
         }
     }

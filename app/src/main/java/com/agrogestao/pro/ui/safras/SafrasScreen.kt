@@ -48,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,7 +92,14 @@ import com.agrogestao.pro.domain.parsePercentage
 import java.util.Locale
 
 @Composable
-fun SafrasScreen(viewModel: SafrasViewModel, onBack: () -> Unit) {
+fun SafrasScreen(
+    viewModel: SafrasViewModel,
+    onBack: () -> Unit,
+    simpleMode: Boolean = false,
+    openFinanceRequested: Boolean = false,
+    onFinanceRequestHandled: () -> Unit = {},
+    hideFinancialValues: Boolean = false
+) {
     val state by viewModel.uiState.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
     var showCropDialog by remember { mutableStateOf(false) }
@@ -116,21 +124,38 @@ fun SafrasScreen(viewModel: SafrasViewModel, onBack: () -> Unit) {
         matchesSearch && matchesStatus
     }
 
+    LaunchedEffect(openFinanceRequested) {
+        if (openFinanceRequested) {
+            selectedTab = 1
+            transactionBeingEdited = null
+            showFinanceDialog = true
+            onFinanceRequestHandled()
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(BackgroundLight)
     ) {
         AppScreenHeader(
-            title = if (selectedTab == 0) "Meus talhões" else "Caixa da propriedade",
+            title = if (selectedTab == 0) {
+                if (simpleMode) "Meus terrenos" else "Meus talhões"
+            } else {
+                if (simpleMode) "Meu dinheiro" else "Caixa da propriedade"
+            },
             subtitle = if (selectedTab == 0) {
-                "${state.safras.size} ${if (state.safras.size == 1) "talhão" else "talhões"} · ${state.safras.sumOf { it.areaHectares }} ha cultivados"
+                "${state.safras.size} ${if (state.safras.size == 1) (if (simpleMode) "terreno" else "talhão") else (if (simpleMode) "terrenos" else "talhões")} · ${state.safras.sumOf { it.areaHectares }} ha cultivados"
             } else {
                 "${state.totalTransactions} lançamentos cadastrados"
             },
             onBack = if (selectedTab == 0) onBack else ({ selectedTab = 0 }),
             actionIcon = Icons.Default.Add,
-            actionDescription = if (selectedTab == 0) "Cadastrar safra" else "Registrar lançamento",
+            actionDescription = if (selectedTab == 0) {
+                if (simpleMode) "Cadastrar terreno" else "Cadastrar safra"
+            } else {
+                if (simpleMode) "Registrar dinheiro" else "Registrar lançamento"
+            },
             onAction = {
                 if (selectedTab == 0) {
                     cropBeingEdited = null
@@ -154,7 +179,7 @@ fun SafrasScreen(viewModel: SafrasViewModel, onBack: () -> Unit) {
                 text = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Agriculture, contentDescription = null, modifier = Modifier.height(18.dp).padding(end = 4.dp))
-                        Text(text = "Talhões", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(text = if (simpleMode) "Terrenos" else "Talhões", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             )
@@ -164,7 +189,7 @@ fun SafrasScreen(viewModel: SafrasViewModel, onBack: () -> Unit) {
                 text = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.MonetizationOn, contentDescription = null, modifier = Modifier.height(18.dp).padding(end = 4.dp))
-                        Text(text = "Lançamentos", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(text = if (simpleMode) "Dinheiro" else "Lançamentos", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             )
@@ -179,7 +204,7 @@ fun SafrasScreen(viewModel: SafrasViewModel, onBack: () -> Unit) {
                 OutlinedTextField(
                     value = cropSearch,
                     onValueChange = { cropSearch = it },
-                    placeholder = { Text("Buscar talhão ou cultura...", fontSize = 12.5.sp, color = TextMuted) },
+                    placeholder = { Text(if (simpleMode) "Buscar terreno ou cultura..." else "Buscar talhão ou cultura...", fontSize = 12.5.sp, color = TextMuted) },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextMuted) },
                     trailingIcon = { Icon(Icons.Default.Tune, contentDescription = null, tint = TextMuted) },
                     singleLine = true,
@@ -231,7 +256,7 @@ fun SafrasScreen(viewModel: SafrasViewModel, onBack: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Todos os talhões", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = TextDark)
+                    Text(if (simpleMode) "Todos os terrenos" else "Todos os talhões", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = TextDark)
                     Text("Lista", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = PrimaryAgroGreen)
                 }
                 LazyColumn(
@@ -254,7 +279,9 @@ fun SafrasScreen(viewModel: SafrasViewModel, onBack: () -> Unit) {
                     onClick = { showFinancialFilters = true }
                 )
                 Text(
-                    text = String.format(
+                    text = if (hideFinancialValues) {
+                        "Mostrando ${state.transacoes.size} de ${state.totalTransactions} • Saldo filtrado: R$ ••••"
+                    } else String.format(
                         Locale("pt", "BR"),
                         "Mostrando %d de %d • Saldo filtrado: R$ %.2f",
                         state.transacoes.size,
@@ -328,7 +355,9 @@ fun SafrasScreen(viewModel: SafrasViewModel, onBack: () -> Unit) {
 
                                 Column(horizontalAlignment = Alignment.End) {
                                     Text(
-                                        text = String.format(
+                                        text = if (hideFinancialValues) {
+                                            if (trans.tipo == TransactionType.ENTRADA) "+ R$ ••••" else "- R$ ••••"
+                                        } else String.format(
                                             Locale("pt", "BR"),
                                             "%s R$ %.2f",
                                             if (trans.tipo == TransactionType.ENTRADA) "+" else "-",

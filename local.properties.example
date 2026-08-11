@@ -1,0 +1,5 @@
+# Copie para local.properties e ajuste somente no seu computador.
+# local.properties é ignorado pelo Git.
+sdk.dir=C\:\\Users\\SEU_USUARIO\\AppData\\Local\\Android\\Sdk
+SUPABASE_URL=https://SEU_PROJECT_REF.supabase.co
+SUPABASE_ANON_KEY=SUA_CHAVE_PUBLICA_OU_PUBLISHABLE

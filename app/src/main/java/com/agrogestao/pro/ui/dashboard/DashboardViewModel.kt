@@ -9,8 +9,12 @@ import com.agrogestao.pro.data.local.entities.ProducerEntity
 import com.agrogestao.pro.data.local.entities.TaskEntity
 import com.agrogestao.pro.data.local.entities.TaskStatus
 import com.agrogestao.pro.data.repository.AgroRepository
+import com.agrogestao.pro.data.repository.DailyActivityReceipt
+import com.agrogestao.pro.domain.DailyActivityRequest
+import com.agrogestao.pro.domain.DailyActivityType
 import com.agrogestao.pro.domain.calculateFinancialSummary
 import com.agrogestao.pro.domain.accountPasswordError
+import com.agrogestao.pro.domain.todayIso
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,12 +29,21 @@ data class DashboardUiState(
     val saldoTotal: Double = 0.0,
     val safrasAtivas: List<CropEntity> = emptyList(),
     val tarefasPendentes: List<TaskEntity> = emptyList(),
+    val atividadesConcluidasHoje: Int = 0,
+    val entradasHoje: Double = 0.0,
+    val saidasHoje: Double = 0.0,
+    val recentActivitySuggestions: Map<DailyActivityType, List<String>> = emptyMap(),
+    val pendingCloudRecordCount: Int = 0,
     val isSyncing: Boolean = false,
     val syncFeedback: String? = null,
     val isBackupBusy: Boolean = false,
     val backupFeedback: String? = null,
     val isChangingPassword: Boolean = false,
-    val passwordFeedback: String? = null
+    val passwordFeedback: String? = null,
+    val isSavingDailyActivity: Boolean = false,
+    val dailyActivityMessage: String? = null,
+    val dailyActivityError: String? = null,
+    val dailyActivityReceipt: DailyActivityReceipt? = null
 )
 
 class DashboardViewModel(private val repository: AgroRepository) : ViewModel() {
@@ -38,15 +51,19 @@ class DashboardViewModel(private val repository: AgroRepository) : ViewModel() {
     private val syncActionState = MutableStateFlow(SyncActionState())
     private val backupActionState = MutableStateFlow(BackupActionState())
     private val passwordActionState = MutableStateFlow(PasswordActionState())
+    private val dailyActivityActionState = MutableStateFlow(DailyActivityActionState())
 
     private val dashboardData = combine(
         repository.producerProfile,
         repository.allTransactions,
         repository.allCrops,
-        repository.allTasks
-    ) { producer, transactions, crops, tasks ->
+        repository.allTasks,
+        repository.pendingCloudRecordCount
+    ) { producer, transactions, crops, tasks, pendingCloudRecordCount ->
         val financial = calculateFinancialSummary(transactions)
-        val pendentes = tasks.filter { it.status == TaskStatus.A_FAZER }
+        val today = todayIso()
+        val financialToday = calculateFinancialSummary(transactions.filter { it.data == today })
+        val pendentes = tasks.filter { it.status != TaskStatus.CONCLUIDO }
 
         DashboardUiState(
             producer = producer,
@@ -54,7 +71,14 @@ class DashboardViewModel(private val repository: AgroRepository) : ViewModel() {
             totalSaidas = financial.expenses,
             saldoTotal = financial.balance,
             safrasAtivas = crops,
-            tarefasPendentes = pendentes
+            tarefasPendentes = pendentes,
+            atividadesConcluidasHoje = tasks.count {
+                it.status == TaskStatus.CONCLUIDO && it.dataLimite == today
+            },
+            entradasHoje = financialToday.income,
+            saidasHoje = financialToday.expenses,
+            recentActivitySuggestions = recentDailyActivitySuggestions(tasks),
+            pendingCloudRecordCount = pendingCloudRecordCount
         )
     }
 
@@ -62,15 +86,20 @@ class DashboardViewModel(private val repository: AgroRepository) : ViewModel() {
         dashboardData,
         syncActionState,
         backupActionState,
-        passwordActionState
-    ) { data, syncAction, backupAction, passwordAction ->
+        passwordActionState,
+        dailyActivityActionState
+    ) { data, syncAction, backupAction, passwordAction, dailyActivityAction ->
         data.copy(
             isSyncing = syncAction.isSyncing,
             syncFeedback = syncAction.feedback,
             isBackupBusy = backupAction.isBusy,
             backupFeedback = backupAction.feedback,
             isChangingPassword = passwordAction.isBusy,
-            passwordFeedback = passwordAction.feedback
+            passwordFeedback = passwordAction.feedback,
+            isSavingDailyActivity = dailyActivityAction.isBusy,
+            dailyActivityMessage = dailyActivityAction.message,
+            dailyActivityError = dailyActivityAction.error,
+            dailyActivityReceipt = dailyActivityAction.receipt
         )
     }.stateIn(
         scope = viewModelScope,
@@ -171,6 +200,51 @@ class DashboardViewModel(private val repository: AgroRepository) : ViewModel() {
         if (!passwordActionState.value.isBusy) passwordActionState.value = PasswordActionState()
     }
 
+    fun recordDailyActivity(request: DailyActivityRequest) {
+        if (dailyActivityActionState.value.isBusy) return
+        dailyActivityActionState.value = DailyActivityActionState(isBusy = true)
+        viewModelScope.launch {
+            val result = runCatching { repository.recordDailyActivity(request) }
+            dailyActivityActionState.value = result.fold(
+                onSuccess = { receipt ->
+                    DailyActivityActionState(
+                        message = "Pronto! Seu dia foi atualizado e já está salvo neste celular.",
+                        receipt = receipt
+                    )
+                },
+                onFailure = { error ->
+                    DailyActivityActionState(
+                        error = error.message
+                            ?: "Não foi possível salvar. Confira os dados e tente novamente."
+                    )
+                }
+            )
+        }
+    }
+
+    fun undoDailyActivity() {
+        val receipt = dailyActivityActionState.value.receipt ?: return
+        if (dailyActivityActionState.value.isBusy) return
+        dailyActivityActionState.value = dailyActivityActionState.value.copy(isBusy = true)
+        viewModelScope.launch {
+            val result = runCatching { repository.undoDailyActivity(receipt) }
+            dailyActivityActionState.value = if (result.getOrDefault(false)) {
+                DailyActivityActionState(message = "O último registro foi desfeito com segurança.")
+            } else {
+                DailyActivityActionState(
+                    error = result.exceptionOrNull()?.message
+                        ?: "Não foi possível desfazer porque o registro já foi alterado."
+                )
+            }
+        }
+    }
+
+    fun clearDailyActivityFeedback() {
+        if (!dailyActivityActionState.value.isBusy) {
+            dailyActivityActionState.value = DailyActivityActionState()
+        }
+    }
+
     private data class SyncActionState(
         val isSyncing: Boolean = false,
         val feedback: String? = null
@@ -185,7 +259,29 @@ class DashboardViewModel(private val repository: AgroRepository) : ViewModel() {
         val isBusy: Boolean = false,
         val feedback: String? = null
     )
+
+    private data class DailyActivityActionState(
+        val isBusy: Boolean = false,
+        val message: String? = null,
+        val error: String? = null,
+        val receipt: DailyActivityReceipt? = null
+    )
 }
+
+internal fun recentDailyActivitySuggestions(
+    tasks: List<TaskEntity>
+): Map<DailyActivityType, List<String>> = DailyActivityType.entries
+    .associateWith { type ->
+        tasks.asSequence()
+            .filter { it.categoria == type.category }
+            .sortedByDescending { it.updatedAtEpochMillis }
+            .map { it.descricao.trim() }
+            .filter { it.isNotBlank() && it != "Registrado rapidamente pela tela Hoje." }
+            .distinctBy { it.lowercase() }
+            .take(4)
+            .toList()
+    }
+    .filterValues { it.isNotEmpty() }
 
 class DashboardViewModelFactory(private val repository: AgroRepository) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {

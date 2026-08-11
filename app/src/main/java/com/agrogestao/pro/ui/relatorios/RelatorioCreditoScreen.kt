@@ -3,6 +3,8 @@ package com.agrogestao.pro.ui.relatorios
 import android.content.ClipData
 import android.content.Intent
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +32,7 @@ import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.TableView
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -51,6 +54,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -92,8 +97,21 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 
+private val LocalFinancialValuesHidden = staticCompositionLocalOf { false }
+
 @Composable
-fun RelatorioCreditoScreen(viewModel: RelatorioCreditoViewModel, onBack: () -> Unit) {
+fun RelatorioCreditoScreen(
+    viewModel: RelatorioCreditoViewModel,
+    onBack: () -> Unit,
+    hideFinancialValues: Boolean = false
+) {
+    CompositionLocalProvider(LocalFinancialValuesHidden provides hideFinancialValues) {
+        RelatorioCreditoScreenContent(viewModel, onBack)
+    }
+}
+
+@Composable
+private fun RelatorioCreditoScreenContent(viewModel: RelatorioCreditoViewModel, onBack: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -107,6 +125,28 @@ fun RelatorioCreditoScreen(viewModel: RelatorioCreditoViewModel, onBack: () -> U
     var historyAfterConsent by remember { mutableStateOf<ReportHistoryEntity?>(null) }
     val report = state.report
     val hasCurrentConsent = state.consent.isCurrentCreditReportConsent
+    val csvLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
+                    output.write(viewModel.exportCurrentPeriodCsv())
+                } ?: error("Não foi possível abrir o arquivo selecionado.")
+            }.fold(
+                onSuccess = {
+                    Toast.makeText(context, "CSV exportado com sucesso.", Toast.LENGTH_LONG).show()
+                },
+                onFailure = { error ->
+                    Toast.makeText(
+                        context,
+                        error.message ?: "Não foi possível exportar o CSV.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            )
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -159,15 +199,15 @@ fun RelatorioCreditoScreen(viewModel: RelatorioCreditoViewModel, onBack: () -> U
                         .padding(18.dp)
                 ) {
                     Text("GASTO ATÉ AGORA", color = Color(0xFFCFE8D0), fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
-                    Text(formatCurrency(summary.expenses), color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 4.dp))
+                    Text(displayCurrency(summary.expenses), color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 4.dp))
                     Row(modifier = Modifier.fillMaxWidth().padding(top = 14.dp)) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Receitas", color = Color(0xFFCFE8D0), fontSize = 10.5.sp)
-                            Text(formatCurrency(summary.income), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(displayCurrency(summary.income), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Custos", color = Color(0xFFCFE8D0), fontSize = 10.5.sp)
-                            Text(formatCurrency(summary.expenses), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(displayCurrency(summary.expenses), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -179,14 +219,14 @@ fun RelatorioCreditoScreen(viewModel: RelatorioCreditoViewModel, onBack: () -> U
                     CostKpiCard(
                         modifier = Modifier.weight(1f),
                         icon = Icons.Default.MonetizationOn,
-                        value = formatCurrency(currentReport.financialSummary.expenses / totalArea),
+                        value = displayCurrency(currentReport.financialSummary.expenses / totalArea),
                         label = "Custo médio\npor hectare",
                         accent = PrimaryAgroGreen
                     )
                     CostKpiCard(
                         modifier = Modifier.weight(1f),
                         icon = Icons.Default.Agriculture,
-                        value = formatCurrency(currentReport.transactions.filter { it.tipo == TransactionType.SAIDA }.maxOfOrNull { it.valor } ?: 0.0),
+                        value = displayCurrency(currentReport.transactions.filter { it.tipo == TransactionType.SAIDA }.maxOfOrNull { it.valor } ?: 0.0),
                         label = "Maior gasto\nregistrado",
                         accent = AccentEarthOrange
                     )
@@ -260,6 +300,25 @@ fun RelatorioCreditoScreen(viewModel: RelatorioCreditoViewModel, onBack: () -> U
                     }
                 },
                 containerColor = PrimaryAgroGreen
+            )
+
+            EasyBigButton(
+                text = "Exportar CSV do período",
+                icon = Icons.Default.TableView,
+                onClick = {
+                    if (report == null) {
+                        Toast.makeText(
+                            context,
+                            "Escolha um período válido antes de exportar.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } else {
+                        csvLauncher.launch(
+                            "agrogestao_${state.reportCriteria.fromDate}_${state.reportCriteria.toDate}.csv"
+                        )
+                    }
+                },
+                containerColor = AgroGreen900
             )
 
             ReportHistoryCard(
@@ -533,7 +592,7 @@ private fun CostCategoriesCard(report: CreditReportSnapshot) {
                     Column {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(category, color = TextDark, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                            Text(formatCurrency(value), color = TextDark, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                            Text(displayCurrency(value), color = TextDark, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
                         }
                         Box(Modifier.fillMaxWidth().padding(top = 6.dp).height(6.dp).background(SurfaceSoft, RoundedCornerShape(4.dp))) {
                             Box(Modifier.fillMaxWidth((value / total).toFloat().coerceIn(.04f, 1f)).height(6.dp).background(accent, RoundedCornerShape(4.dp)))
@@ -752,7 +811,7 @@ private fun ReportHistoryItem(
             color = TextMuted
         )
         Text(
-            text = "Saldo: ${formatCurrency(item.balance)} • " +
+            text = "Saldo: ${displayCurrency(item.balance)} • " +
                 if (item.isComplete) "Cadastro completo" else "Cadastro incompleto",
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
@@ -947,18 +1006,18 @@ private fun ReportPreviewCard(
             ReportDivider()
             ReportSectionTitle("3. FINANCEIRO NO PERÍODO")
             Text(
-                text = "Receitas registradas: ${formatCurrency(report?.financialSummary?.income)}",
+                text = "Receitas registradas: ${displayCurrency(report?.financialSummary?.income)}",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = StatusGreen
             )
             Text(
-                text = "Despesas registradas: ${formatCurrency(report?.financialSummary?.expenses)}",
+                text = "Despesas registradas: ${displayCurrency(report?.financialSummary?.expenses)}",
                 fontSize = 16.sp,
                 color = TextDark
             )
             Text(
-                text = "Saldo operacional: ${formatCurrency(report?.financialSummary?.balance)}",
+                text = "Saldo operacional: ${displayCurrency(report?.financialSummary?.balance)}",
                 fontSize = 17.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = if ((report?.financialSummary?.balance ?: 0.0) >= 0.0) {
@@ -1091,6 +1150,10 @@ private fun ReportDivider() {
 
 private fun formatCurrency(value: Double?): String =
     NumberFormat.getCurrencyInstance(Locale("pt", "BR")).format(value ?: 0.0)
+
+@Composable
+private fun displayCurrency(value: Double?): String =
+    if (LocalFinancialValuesHidden.current) "R$ ••••" else formatCurrency(value)
 
 @Composable
 fun EditProfileDialog(

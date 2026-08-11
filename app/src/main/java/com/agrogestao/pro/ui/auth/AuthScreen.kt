@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.HomeWork
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -40,6 +41,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -74,6 +76,10 @@ import com.agrogestao.pro.ui.theme.TextSecondary
 @Composable
 fun AuthScreen(
     viewModel: AuthViewModel,
+    simpleModeChoice: Boolean = false,
+    onSimpleModeChoiceChange: (Boolean) -> Unit = {},
+    onDisplayModeSubmitted: (Boolean) -> Unit = {},
+    onDisplayModeSubmissionFailed: () -> Unit = {},
     passwordRecoverySession: PasswordRecoverySession? = null,
     onPasswordRecoveryConsumed: () -> Unit = {},
     onAuthSuccess: () -> Unit
@@ -106,6 +112,11 @@ fun AuthScreen(
             isCadastro = false
             email = pendingEmail
             password = ""
+        }
+    }
+    LaunchedEffect(state.errorMessage, state.pendingConfirmationEmail) {
+        if (state.errorMessage != null && state.pendingConfirmationEmail == null) {
+            onDisplayModeSubmissionFailed()
         }
     }
 
@@ -158,6 +169,12 @@ fun AuthScreen(
                 modifier = Modifier.padding(top = 4.dp, bottom = 22.dp)
             )
 
+            SimpleModeAuthChoice(
+                enabled = simpleModeChoice,
+                onEnabledChange = onSimpleModeChoiceChange
+            )
+            Spacer(Modifier.height(18.dp))
+
             state.infoMessage?.let {
                 AuthMessage(text = it, isError = false)
                 Spacer(Modifier.height(12.dp))
@@ -203,7 +220,7 @@ fun AuthScreen(
                 value = password,
                 onValueChange = { password = it },
                 label = "Senha",
-                placeholder = if (isCadastro) "Mínimo de 6 caracteres" else "Digite sua senha",
+                placeholder = if (isCadastro) "Mínimo de 8 caracteres" else "Digite sua senha",
                 icon = Icons.Default.Lock,
                 isPassword = true
             )
@@ -278,6 +295,7 @@ fun AuthScreen(
             } else {
                 Button(
                     onClick = {
+                        onDisplayModeSubmitted(simpleModeChoice)
                         if (isCadastro) {
                             viewModel.createAccount(nome, email, password, propriedade, municipio, caf, area)
                         } else {
@@ -330,7 +348,10 @@ fun AuthScreen(
                     fontSize = 11.5.sp
                 )
                 TextButton(
-                    onClick = { viewModel.continueOffline(nome, propriedade, municipio, area) },
+                    onClick = {
+                        onDisplayModeSubmitted(simpleModeChoice)
+                        viewModel.continueOffline(nome, propriedade, municipio, area)
+                    },
                     modifier = Modifier.align(Alignment.CenterHorizontally)
                 ) {
                     Text("Testar no modo offline", color = PrimaryAgroGreen, fontWeight = FontWeight.Bold)
@@ -409,6 +430,54 @@ fun AuthScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun SimpleModeAuthChoice(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit
+) {
+    Surface(
+        color = if (enabled) AgroGreen050 else SurfaceSoft,
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onEnabledChange(!enabled) }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(AgroGreen100, RoundedCornerShape(11.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.TouchApp,
+                    contentDescription = null,
+                    tint = AgroGreen900,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            Column(modifier = Modifier.weight(1f).padding(horizontal = 11.dp)) {
+                Text(
+                    "Modo simples (recomendado)",
+                    color = TextDark,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Botões grandes, perguntas curtas e só o que você precisa agora.",
+                    color = TextMuted,
+                    fontSize = 10.5.sp,
+                    lineHeight = 14.sp
+                )
+            }
+            Switch(checked = enabled, onCheckedChange = null)
+        }
     }
 }
 

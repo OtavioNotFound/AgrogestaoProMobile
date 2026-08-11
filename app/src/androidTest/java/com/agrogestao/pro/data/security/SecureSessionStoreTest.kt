@@ -11,6 +11,7 @@ import com.agrogestao.pro.data.local.entities.ProducerEntity
 import com.agrogestao.pro.data.local.entities.TaskEntity
 import com.agrogestao.pro.data.local.entities.TaskStatus
 import com.agrogestao.pro.data.local.entities.TransactionType
+import com.agrogestao.pro.domain.moneyToCents
 import com.agrogestao.pro.data.repository.AgroRepository
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -247,7 +248,7 @@ class SecureSessionStoreTest {
             repository.updateTransaction(
                 originalTransaction.copy(
                     descricao = "Venda antecipada",
-                    valor = 350.0,
+                    valorCentavos = moneyToCents(350.0),
                     tipo = TransactionType.ENTRADA,
                     data = "2026-08-07",
                     categoria = "Venda"

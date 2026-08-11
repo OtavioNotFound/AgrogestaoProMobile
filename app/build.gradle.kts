@@ -14,6 +14,25 @@ val localProperties = Properties().apply {
     }
 }
 
+val signingProperties = Properties().apply {
+    val propertiesFile = rootProject.file("keystore.properties")
+    if (propertiesFile.exists()) propertiesFile.inputStream().use(::load)
+}
+
+fun signingValue(environmentName: String, propertyName: String): String =
+    firstConfiguredValue(System.getenv(environmentName), signingProperties.getProperty(propertyName))
+
+val releaseStoreFile = signingValue("AGRO_RELEASE_STORE_FILE", "storeFile")
+val releaseStorePassword = signingValue("AGRO_RELEASE_STORE_PASSWORD", "storePassword")
+val releaseKeyAlias = signingValue("AGRO_RELEASE_KEY_ALIAS", "keyAlias")
+val releaseKeyPassword = signingValue("AGRO_RELEASE_KEY_PASSWORD", "keyPassword")
+val hasReleaseSigning = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+).all(String::isNotBlank)
+
 val privateSupabaseProperties = rootProject.file("supabase.md")
     .takeIf { it.exists() }
     ?.readLines()
@@ -52,17 +71,28 @@ android {
         applicationId = "com.agrogestao.pro"
         minSdk = 24
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.1.0-beta8"
+        versionCode = 14
+        versionName = "1.2.0-beta14"
 
         testInstrumentationRunner = "com.agrogestao.pro.TestRunner"
         buildConfigField("String", "SUPABASE_URL", supabaseUrl.asBuildConfigString())
         buildConfigField("String", "SUPABASE_ANON_KEY", supabaseAnonKey.asBuildConfigString())
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFile)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

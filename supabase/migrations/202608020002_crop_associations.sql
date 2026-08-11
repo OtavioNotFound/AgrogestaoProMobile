@@ -1,5 +1,7 @@
 -- Associa tarefas e lançamentos financeiros a uma safra pelo UUID de nuvem.
 
+begin;
+
 alter table public.tarefas
   add column if not exists crop_id uuid;
 
@@ -44,3 +46,5 @@ create index if not exists financeiro_user_crop_idx
   on public.financeiro (user_id, crop_id);
 
 notify pgrst, 'reload schema';
+
+commit;

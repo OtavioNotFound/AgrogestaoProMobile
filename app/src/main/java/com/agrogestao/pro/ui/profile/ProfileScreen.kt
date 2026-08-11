@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Agriculture
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
@@ -84,6 +85,8 @@ fun ProfileScreen(
     onNavigateToTasks: () -> Unit,
     onNavigateToReports: () -> Unit,
     onNavigateToBackup: () -> Unit,
+    onNavigateToWeather: () -> Unit,
+    onNavigateToConflicts: () -> Unit,
     simpleMode: Boolean = false,
     onSimpleModeChange: (Boolean) -> Unit = {}
 ) {
@@ -99,7 +102,8 @@ fun ProfileScreen(
     val producerName = producer?.nomeProdutor.orEmpty().ifBlank { "Produtor" }
     val farmName = producer?.nomePropriedade.orEmpty().ifBlank { "Propriedade não informada" }
     val location = producer?.municipioUF.orEmpty().ifBlank { "Localização não informada" }
-    val isSynced = producer?.syncStatus == SupabaseConfig.STATUS_SYNCED_CLOUD
+    val isSynced = producer?.syncStatus == SupabaseConfig.STATUS_SYNCED_CLOUD &&
+        dashboard.pendingCloudRecordCount == 0
     val cropsLabel = dashboard.safrasAtivas.map { it.nomeCultura }.distinct().joinToString()
 
     Column(modifier = Modifier.fillMaxSize().background(SurfaceCard)) {
@@ -141,7 +145,13 @@ fun ProfileScreen(
                 )
                 Column(modifier = Modifier.weight(1f).padding(horizontal = 11.dp)) {
                     Text(
-                        if (dashboard.isSyncing) "Sincronizando dados..." else if (isSynced) "Dados sincronizados" else "Dados protegidos no celular",
+                        when {
+                            dashboard.isSyncing -> "Sincronizando dados..."
+                            isSynced -> "Dados sincronizados"
+                            dashboard.pendingCloudRecordCount > 0 ->
+                                "${dashboard.pendingCloudRecordCount} registro(s) aguardando a nuvem"
+                            else -> "Dados protegidos no celular"
+                        },
                         color = AgroGreen900,
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold
@@ -212,9 +222,9 @@ fun ProfileScreen(
                 ) {
                     SmallIconTile(Icons.Default.Agriculture, AgroGreen100)
                     Column(modifier = Modifier.weight(1f).padding(horizontal = 11.dp)) {
-                        Text("Modo simples", color = TextDark, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text("Modo simples (recomendado)", color = TextDark, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         Text(
-                            "Botões maiores e somente os caminhos principais",
+                            "Perguntas curtas, botões grandes e registro diário guiado",
                             color = TextMuted,
                             fontSize = 10.5.sp,
                             lineHeight = 14.sp
@@ -237,6 +247,8 @@ fun ProfileScreen(
                 }
                 HorizontalDivider(color = CardBorder, modifier = Modifier.padding(start = 59.dp))
                 MenuListItem(Icons.Default.Backup, "Cópia de segurança", "Salvar ou restaurar um backup protegido") { onNavigateToBackup() }
+                MenuListItem(Icons.Default.Cloud, "Clima", "Previsão opcional por município") { onNavigateToWeather() }
+                MenuListItem(Icons.Default.Sync, "Conflitos de sincronização", "Histórico de versões concorrentes") { onNavigateToConflicts() }
                 HorizontalDivider(color = CardBorder, modifier = Modifier.padding(start = 59.dp))
                 MenuListItem(Icons.Default.Lock, "Privacidade e LGPD", "Consentimento e proteção dos seus dados") {
                     infoDialog = "Privacidade e LGPD" to "Seus dados agrícolas são usados somente para as funções do AgroGestão Pro. Relatórios para terceiros exigem autorização antes de serem gerados ou compartilhados."

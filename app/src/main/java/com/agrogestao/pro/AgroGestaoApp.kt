@@ -39,6 +39,8 @@ class AgroGestaoApp : Application() {
             producerDao = database.producerDao(),
             reportHistoryDao = database.reportHistoryDao(),
             reportConsentDao = database.reportConsentDao(),
+            syncConflictDao = database.syncConflictDao(),
+            dailyActivityDao = database.dailyActivityDao(),
             secureSessionStore = SecureSessionStore(this)
         )
     }

@@ -283,10 +283,42 @@ Recuperação de acesso e CI implementadas no ciclo de 04/08/2026:
 - 41 testes unitários e 32 instrumentados executados, sem falhas; dois testes live ignorados sem credenciais temporárias;
 - pendência de saída: validar entrega/abertura do e-mail e troca real usando exclusivamente conta temporária.
 
-Próximo ciclo planejado:
+Concluído no ciclo integrado de 04/08/2026:
 
-- validar recuperação/troca de senha no Supabase real com uma conta temporária;
-- reconstruir ou substituir com upgrade assistido a migration v1 destrutiva;
-- migrar valores monetários de `Double` para centavos `Long`, com testes de atualização;
-- preparar assinatura/AAB e triar avisos prioritários do lint;
-- depois avançar em privacidade operacional, modularização e demais itens da documentação técnica v3.
+- valores monetários migrados para centavos `Long`, incluindo schema, backup e soma exata;
+- upgrade v1 assistido sem deleção silenciosa e migrations até a versão 11;
+- clima opcional por município com consentimento, cache offline, fonte e revogação;
+- CSV auditável do período financeiro selecionado;
+- trilha consultável de conflitos de sincronização;
+- configuração privada de assinatura, AAB de release, checklist e aviso de privacidade para piloto;
+- painel “Hoje”, registro central e privacidade visual dos valores financeiros;
+- 46 testes unitários e 36 instrumentados sem falhas; lint com zero erros; APK e AAB gerados.
+
+Concluído no ciclo de rotina simples de 07/08/2026:
+
+- Modo Simples recomendado desde o primeiro acesso, sem sobrescrever escolhas persistidas.
+- Tela Hoje reorganizada para mostrar apenas a ação principal, a prioridade mais urgente e o resumo do dia.
+- Fluxo “Atualizar meu dia” com perguntas curtas para nove acontecimentos rurais e data automática.
+- Reaproveitamento do mesmo registro no histórico, caixa e terreno, conforme o tipo escolhido.
+- Persistência local composta, tolerante à falta de internet, com confirmação e desfazer seguro.
+- Linguagem principal adaptada para “Terrenos” e “Dinheiro”, mantendo o modo completo disponível.
+- Fluxo visual percorrido no emulador com compra, atualização do resumo e desfazer.
+- 51 testes unitários e 40 instrumentados sem falhas; dois testes live ignorados; lint sem erros.
+
+Concluído no ciclo de redução de esforço de 08/08/2026:
+
+- pergunta específica sobre o produto, conta, pagamento, origem ou problema em todos os nove tipos de registro rápido;
+- sugestões selecionáveis e campo livre, com respostas recentes do próprio produtor priorizadas automaticamente;
+- resumo final com atividade, resposta, valor, terreno e data antes do salvamento;
+- continuação direta por “Registrar outra”, preservando também “Terminei” e o desfazer seguro;
+- ajuda contextual em três passos na tela Mais;
+- validação visual com fonte do Android em 130%, mantendo conteúdo refluído e controles acessíveis;
+- 55 testes unitários e 40 instrumentados sem falhas; dois testes live ignorados; lint sem erros.
+
+Gates externos pendentes antes de produção:
+
+- validar recuperação/troca de senha no Supabase real com conta temporária;
+- testar atualização usando um banco extraído de uma instalação v1 real;
+- obter revisão jurídica, agronômica e de crédito;
+- executar piloto consentido em aparelhos reais e conexão instável;
+- assinar com a chave definitiva e concluir Play Console/LGPD do controlador.

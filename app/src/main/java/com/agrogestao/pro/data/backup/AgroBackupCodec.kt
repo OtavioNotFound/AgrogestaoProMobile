@@ -7,6 +7,7 @@ import com.agrogestao.pro.data.local.entities.TaskEntity
 import com.agrogestao.pro.data.local.entities.TaskStatus
 import com.agrogestao.pro.data.local.entities.TransactionType
 import com.agrogestao.pro.domain.isoDateParts
+import com.agrogestao.pro.domain.moneyToCents
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
 import java.util.UUID
@@ -52,7 +53,9 @@ object AgroBackupCodec {
 
     private const val ENVELOPE_FORMAT = "agrogestao-encrypted-backup"
     private const val PAYLOAD_FORMAT = "agrogestao-data"
-    private const val FORMAT_VERSION = 1
+    private const val ENVELOPE_FORMAT_VERSION = 1
+    private const val LEGACY_PAYLOAD_VERSION = 1
+    private const val PAYLOAD_FORMAT_VERSION = 2
     private const val PBKDF2_ALGORITHM = "PBKDF2WithHmacSHA1"
     private const val ITERATIONS = 210_000
     private const val KEY_BITS = 256
@@ -75,7 +78,7 @@ object AgroBackupCodec {
         val encrypted = cipher.doFinal(snapshot.toJson().toString().toByteArray(StandardCharsets.UTF_8))
         return JSONObject().apply {
             put("format", ENVELOPE_FORMAT)
-            put("version", FORMAT_VERSION)
+            put("version", ENVELOPE_FORMAT_VERSION)
             put("kdf", PBKDF2_ALGORITHM)
             put("iterations", ITERATIONS)
             put("salt", salt.toBase64())
@@ -95,7 +98,7 @@ object AgroBackupCodec {
             val envelope = JSONObject(serialized)
             checkBackup(envelope.optString("format") == ENVELOPE_FORMAT, "Formato de backup inválido.")
             checkBackup(
-                envelope.optInt("version", -1) == FORMAT_VERSION,
+                envelope.optInt("version", -1) == ENVELOPE_FORMAT_VERSION,
                 "Esta versão do backup ainda não é compatível com o aplicativo."
             )
             val algorithm = envelope.optString("kdf")
@@ -142,7 +145,7 @@ object AgroBackupCodec {
 
     private fun BackupSnapshot.toJson() = JSONObject().apply {
         put("format", PAYLOAD_FORMAT)
-        put("version", FORMAT_VERSION)
+        put("version", PAYLOAD_FORMAT_VERSION)
         put("exported_at_epoch_ms", exportedAtEpochMillis)
         put("owner_user_id", ownerUserId)
         put("owner_email", ownerEmail)
@@ -184,7 +187,7 @@ object AgroBackupCodec {
                 put(JSONObject().apply {
                     put("cloud_id", transaction.cloudId)
                     put("descricao", transaction.descricao)
-                    put("valor", transaction.valor)
+                    put("valor_centavos", transaction.valorCentavos)
                     put("tipo", transaction.tipo.name)
                     put("data", transaction.data)
                     put("categoria", transaction.categoria)
@@ -196,8 +199,9 @@ object AgroBackupCodec {
 
     private fun parseSnapshot(payload: JSONObject): BackupSnapshot {
         checkBackup(payload.optString("format") == PAYLOAD_FORMAT, "Conteúdo do backup inválido.")
+        val payloadVersion = payload.optInt("version", -1)
         checkBackup(
-            payload.optInt("version", -1) == FORMAT_VERSION,
+            payloadVersion in LEGACY_PAYLOAD_VERSION..PAYLOAD_FORMAT_VERSION,
             "Versão dos dados do backup incompatível."
         )
         val ownerUserId = payload.requiredText("owner_user_id", 200, allowBlank = false)
@@ -238,9 +242,14 @@ object AgroBackupCodec {
         }
         val transactions = payload.getJSONArray("transactions").toObjects().map { json ->
             val association = json.optionalUuid("crop_cloud_id")?.takeIf(cropIds::contains)
+            val valueCents = if (payloadVersion >= PAYLOAD_FORMAT_VERSION) {
+                json.requiredLong("valor_centavos", 0L)
+            } else {
+                moneyToCents(json.requiredFiniteDouble("valor", 0.0))
+            }
             FinancialEntity(
                 descricao = json.requiredText("descricao", 500),
-                valor = json.requiredFiniteDouble("valor", 0.0),
+                valorCentavos = valueCents,
                 tipo = json.requiredEnum<TransactionType>("tipo"),
                 data = json.requiredDate("data"),
                 categoria = json.requiredText("categoria", 500),
@@ -300,7 +309,7 @@ object AgroBackupCodec {
         }
         snapshot.transactions.forEach { transaction ->
             checkBackup(transaction.descricao.length <= 500, "Descrição de lançamento inválida.")
-            checkBackup(transaction.valor.isFinite() && transaction.valor >= 0, "Valor inválido.")
+            checkBackup(transaction.valorCentavos >= 0L, "Valor inválido.")
             checkBackup(transaction.categoria.length <= 500, "Categoria de lançamento inválida.")
             validateDate(transaction.data)
             validateUuid(transaction.cloudId)
@@ -352,6 +361,12 @@ object AgroBackupCodec {
     private fun JSONObject.requiredFiniteDouble(name: String, minimum: Double): Double {
         val value = getDouble(name)
         checkBackup(value.isFinite() && value >= minimum, "Número inválido no backup.")
+        return value
+    }
+
+    private fun JSONObject.requiredLong(name: String, minimum: Long): Long {
+        val value = getLong(name)
+        checkBackup(value >= minimum, "Número inválido no backup.")
         return value
     }
 

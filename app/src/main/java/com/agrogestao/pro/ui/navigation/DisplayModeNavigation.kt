@@ -8,4 +8,12 @@ internal fun displayModeBottomRoutes(simpleMode: Boolean): List<String> =
     }
 
 internal fun displayModeSelectedRoute(simpleMode: Boolean, currentRoute: String?): String? =
-    if (simpleMode && currentRoute in setOf("more", "profile", "relatorio")) "more" else currentRoute
+    if (
+        simpleMode && currentRoute in setOf(
+            "more",
+            "profile",
+            "relatorio",
+            "weather",
+            "sync_conflicts"
+        )
+    ) "more" else currentRoute

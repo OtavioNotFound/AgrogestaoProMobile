@@ -23,6 +23,30 @@ class AgroCalculationsTest {
     }
 
     @Test
+    fun `financial summary adds exact cents without binary drift`() {
+        val summary = calculateFinancialSummary(
+            listOf(
+                transaction(1, 0.10, TransactionType.ENTRADA),
+                transaction(2, 0.20, TransactionType.ENTRADA),
+                transaction(3, 0.01, TransactionType.SAIDA)
+            )
+        )
+
+        assertEquals(0.30, summary.income, 0.0)
+        assertEquals(0.01, summary.expenses, 0.0)
+        assertEquals(0.29, summary.balance, 0.0)
+    }
+
+    @Test
+    fun `money conversion uses commercial rounding and Brazilian input`() {
+        assertEquals(10L, moneyToCents(0.10))
+        assertEquals(101L, moneyToCents(1.005))
+        assertEquals(12_345L, parsePositiveMoneyCents("123,45"))
+        assertNull(parsePositiveMoneyCents("0"))
+        assertNull(parsePositiveMoneyCents("NaN"))
+    }
+
+    @Test
     fun `positive decimal accepts Brazilian comma`() {
         assertEquals(2.5, requireNotNull(parsePositiveDecimal(" 2,5 ")), 0.0)
     }

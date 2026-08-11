@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -35,6 +36,9 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -104,7 +108,10 @@ fun DashboardScreen(
     openBackupRequested: Boolean = false,
     onBackupRequestHandled: () -> Unit = {},
     onNavigateToTasks: () -> Unit,
-    onNavigateToSafras: () -> Unit
+    onNavigateToSafras: () -> Unit,
+    onNavigateToFinance: () -> Unit,
+    hideFinancialValues: Boolean = false,
+    onHideFinancialValuesChange: (Boolean) -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -115,6 +122,11 @@ fun DashboardScreen(
     var backupDialogError by remember { mutableStateOf<String?>(null) }
     var pendingBackupContent by remember { mutableStateOf<String?>(null) }
     var pendingRestorePassword by remember { mutableStateOf("") }
+    var showRegisterActivity by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state.dailyActivityReceipt) {
+        if (state.dailyActivityReceipt != null) showRegisterActivity = false
+    }
 
     LaunchedEffect(openBackupRequested) {
         if (openBackupRequested) {
@@ -170,7 +182,8 @@ fun DashboardScreen(
     val firstName = producerName.trim().substringBefore(" ").ifBlank { "Produtor" }
     val farmName = state.producer?.nomePropriedade.orEmpty().ifBlank { "Minha propriedade" }
     val location = state.producer?.municipioUF.orEmpty().ifBlank { "Localização não informada" }
-    val synced = state.producer?.syncStatus == SupabaseConfig.STATUS_SYNCED_CLOUD
+    val synced = state.producer?.syncStatus == SupabaseConfig.STATUS_SYNCED_CLOUD &&
+        state.pendingCloudRecordCount == 0
 
     Column(modifier = Modifier.fillMaxSize().background(SurfaceCard)) {
         Column(
@@ -206,14 +219,18 @@ fun DashboardScreen(
                     }
                 }
                 Text(
-                    "Bom dia, $firstName 👋",
+                    "Hoje",
                     color = TextDark,
-                    fontSize = 23.sp,
+                    fontSize = if (simpleMode) 27.sp else 23.sp,
                     fontWeight = FontWeight.ExtraBold,
                     modifier = Modifier.padding(top = 14.dp)
                 )
                 Text(
-                    if (simpleMode) "Veja o que precisa de atenção hoje" else "Acompanhe sua propriedade hoje",
+                    if (simpleMode) {
+                        "Olá, $firstName. Registre o dia sem complicação."
+                    } else {
+                        "Olá, $firstName. Acompanhe sua propriedade."
+                    },
                     color = TextMuted,
                     fontSize = 12.5.sp,
                     modifier = Modifier.padding(top = 3.dp)
@@ -225,16 +242,64 @@ fun DashboardScreen(
                     InfoChip(Icons.Default.LocationOn, location)
                     InfoChip(
                         if (synced) Icons.Default.CloudDone else Icons.Default.CloudOff,
-                        if (synced) "Nuvem atualizada" else "Salvo no celular"
+                        when {
+                            synced -> "Nuvem atualizada"
+                            state.pendingCloudRecordCount > 0 ->
+                                "${state.pendingCloudRecordCount} aguardando a nuvem"
+                            else -> "Salvo no celular"
+                        }
                     )
+                }
+                Button(
+                    onClick = {
+                        viewModel.clearDailyActivityFeedback()
+                        showRegisterActivity = true
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 14.dp)
+                        .heightIn(min = if (simpleMode) 68.dp else 52.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryAgroGreen)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Column(modifier = Modifier.padding(start = 9.dp)) {
+                        Text(
+                            if (simpleMode) "Atualizar meu dia" else "Registrar atividade",
+                            fontSize = if (simpleMode) 17.sp else 14.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        if (simpleMode) {
+                            Text(
+                                "Leva cerca de 30 segundos",
+                                color = Color.White.copy(alpha = 0.86f),
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
                 }
             }
 
-            DashboardSection {
+            if (simpleMode) {
+                SimpleTodayContent(
+                    state = state,
+                    hideFinancialValues = hideFinancialValues,
+                    onHideFinancialValuesChange = onHideFinancialValuesChange,
+                    onNavigateToTasks = onNavigateToTasks,
+                    onNavigateToSafras = onNavigateToSafras,
+                    onNavigateToFinance = onNavigateToFinance
+                )
+            } else {
+                DashboardSection {
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     DashboardKpi(Modifier.weight(1f), Icons.Default.Agriculture, state.safrasAtivas.size.toString(), "Talhões\nativos")
                     DashboardKpi(Modifier.weight(1f), Icons.AutoMirrored.Filled.Assignment, state.tarefasPendentes.size.toString(), "Tarefas\npendentes")
-                    DashboardKpi(Modifier.weight(1f), Icons.AutoMirrored.Filled.TrendingUp, currencyShort(state.saldoTotal), "Saldo\natual")
+                    DashboardKpi(
+                        Modifier.weight(1f),
+                        Icons.AutoMirrored.Filled.TrendingUp,
+                        if (hideFinancialValues) "••••" else currencyShort(state.saldoTotal),
+                        "Saldo\natual"
+                    )
                 }
                 if (state.tarefasPendentes.isNotEmpty()) {
                     Row(
@@ -259,7 +324,7 @@ fun DashboardScreen(
                 }
             }
 
-            DashboardSection {
+                DashboardSection {
                 AgroSectionHeader(if (simpleMode) "O que fazer hoje" else "Tarefas de hoje", "Ver todas", onNavigateToTasks)
                 Spacer(Modifier.height(13.dp))
                 PrototypeCard {
@@ -283,7 +348,7 @@ fun DashboardScreen(
                 }
             }
 
-            DashboardSection {
+                DashboardSection {
                 AgroSectionHeader("Meus talhões", "Ver todos", onNavigateToSafras)
                 Spacer(Modifier.height(13.dp))
                 if (state.safrasAtivas.isEmpty()) {
@@ -302,7 +367,7 @@ fun DashboardScreen(
                 }
             }
 
-            DashboardSection {
+                DashboardSection {
                 AgroSectionHeader("Custos do período")
                 Spacer(Modifier.height(13.dp))
                 Column(
@@ -312,22 +377,31 @@ fun DashboardScreen(
                         .background(Brush.linearGradient(listOf(AgroGreen900, PrimaryAgroGreen)))
                         .padding(18.dp)
                 ) {
-                    Text("SALDO OPERACIONAL", color = Color(0xFFCFE8D0), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
-                    Text(currency(state.saldoTotal), color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("SALDO OPERACIONAL", color = Color(0xFFCFE8D0), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { onHideFinancialValuesChange(!hideFinancialValues) }, modifier = Modifier.size(40.dp)) {
+                            Icon(
+                                if (hideFinancialValues) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                if (hideFinancialValues) "Mostrar valores" else "Ocultar valores",
+                                tint = Color.White
+                            )
+                        }
+                    }
+                    Text(if (hideFinancialValues) "R$ ••••" else currency(state.saldoTotal), color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 4.dp))
                     Row(modifier = Modifier.padding(top = 14.dp)) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Receitas", color = Color(0xFFCFE8D0), fontSize = 10.5.sp)
-                            Text(currency(state.totalEntradas), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(if (hideFinancialValues) "R$ ••••" else currency(state.totalEntradas), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Custos", color = Color(0xFFCFE8D0), fontSize = 10.5.sp)
-                            Text(currency(state.totalSaidas), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(if (hideFinancialValues) "R$ ••••" else currency(state.totalSaidas), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
 
-            DashboardSection {
+                DashboardSection {
                 AgroSectionHeader("Mais ferramentas")
                 Spacer(Modifier.height(13.dp))
                 PrototypeCard {
@@ -364,8 +438,64 @@ fun DashboardScreen(
                     }
                     Spacer(Modifier.height(12.dp))
                 }
+                }
             }
         }
+    }
+
+    if (showRegisterActivity) {
+        DailyActivitySheet(
+            crops = state.safrasAtivas,
+            recentSuggestions = state.recentActivitySuggestions,
+            isSaving = state.isSavingDailyActivity,
+            externalError = state.dailyActivityError,
+            onDismiss = {
+                showRegisterActivity = false
+                viewModel.clearDailyActivityFeedback()
+            },
+            onSave = viewModel::recordDailyActivity
+        )
+    }
+
+    if (!showRegisterActivity && state.dailyActivityMessage != null) {
+        AlertDialog(
+            onDismissRequest = viewModel::clearDailyActivityFeedback,
+            icon = { Icon(Icons.Default.CheckCircle, null, tint = StatusGreen) },
+            title = { Text(if (state.dailyActivityReceipt != null) "Dia atualizado" else "Registro desfeito") },
+            text = {
+                Column {
+                    Text(state.dailyActivityMessage.orEmpty())
+                    if (state.dailyActivityReceipt != null) {
+                        OutlinedButton(
+                            onClick = viewModel::undoDailyActivity,
+                            enabled = !state.isSavingDailyActivity,
+                            modifier = Modifier.fillMaxWidth().padding(top = 16.dp).heightIn(min = 50.dp)
+                        ) {
+                            Text("Desfazer último registro")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                if (state.dailyActivityReceipt != null) {
+                    Button(
+                        onClick = {
+                            viewModel.clearDailyActivityFeedback()
+                            showRegisterActivity = true
+                        }
+                    ) {
+                        Text("Registrar outra")
+                    }
+                } else {
+                    Button(onClick = viewModel::clearDailyActivityFeedback) { Text("Entendi") }
+                }
+            },
+            dismissButton = {
+                if (state.dailyActivityReceipt != null) {
+                    TextButton(onClick = viewModel::clearDailyActivityFeedback) { Text("Terminei") }
+                }
+            }
+        )
     }
 
     backupDialog?.let { mode ->

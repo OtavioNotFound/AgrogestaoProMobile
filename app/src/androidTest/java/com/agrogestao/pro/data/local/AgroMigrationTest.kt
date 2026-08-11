@@ -1,5 +1,7 @@
 package com.agrogestao.pro.data.local
 
+import android.database.sqlite.SQLiteDatabase
+import androidx.room.Room
 import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -20,6 +22,56 @@ class AgroMigrationTest {
         emptyList(),
         FrameworkSQLiteOpenHelperFactory()
     )
+
+    @Test
+    fun migrateUnknownVersion1SalvagesRecognizedDataWithoutDestructiveFallback() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val name = "agro-legacy-v1-salvage"
+        context.deleteDatabase(name)
+        SQLiteDatabase.openOrCreateDatabase(context.getDatabasePath(name), null).use { db ->
+            db.execSQL("CREATE TABLE produtor (id INTEGER PRIMARY KEY, nomeProdutor TEXT, email TEXT)")
+            db.execSQL("INSERT INTO produtor VALUES (1, 'Produtora antiga', 'antiga@example.com')")
+            db.execSQL("CREATE TABLE financeiro (id INTEGER PRIMARY KEY, descricao TEXT, valor REAL, tipo TEXT)")
+            db.execSQL("INSERT INTO financeiro VALUES (7, 'Venda antiga', 12.55, 'ENTRADA')")
+            db.version = 1
+        }
+
+        val database = Room.databaseBuilder(context, AgroDatabase::class.java, name)
+            .addMigrations(
+                AgroDatabase.MIGRATION_1_2,
+                AgroDatabase.MIGRATION_2_3,
+                AgroDatabase.MIGRATION_3_4,
+                AgroDatabase.MIGRATION_4_5,
+                AgroDatabase.MIGRATION_5_6,
+                AgroDatabase.MIGRATION_6_7,
+                AgroDatabase.MIGRATION_7_8,
+                AgroDatabase.MIGRATION_8_9,
+                AgroDatabase.MIGRATION_9_10,
+                AgroDatabase.MIGRATION_10_11
+            )
+            .allowMainThreadQueries()
+            .build()
+        try {
+            database.openHelper.writableDatabase
+            database.openHelper.readableDatabase.query(
+                "SELECT nomeProdutor, email FROM produtor WHERE id = 1"
+            ).use {
+                assertEquals(true, it.moveToFirst())
+                assertEquals("Produtora antiga", it.getString(0))
+                assertEquals("antiga@example.com", it.getString(1))
+            }
+            database.openHelper.readableDatabase.query(
+                "SELECT descricao, valorCentavos FROM financeiro WHERE id = 7"
+            ).use {
+                assertEquals(true, it.moveToFirst())
+                assertEquals("Venda antiga", it.getString(0))
+                assertEquals(1255L, it.getLong(1))
+            }
+        } finally {
+            database.close()
+            context.deleteDatabase(name)
+        }
+    }
 
     @Test
     fun migrate3To4PreservesRowsAndAddsTombstones() {
@@ -253,6 +305,68 @@ class AgroMigrationTest {
             assertEquals(1, it.getInt(0))
             assertEquals(4567L, it.getLong(1))
             assertEquals(1, it.getInt(2))
+        }
+        migrated.close()
+    }
+
+    @Test
+    fun migrate9To10ConvertsMoneyToExactCents() {
+        helper.createDatabase(databaseName, 9).apply {
+            execSQL(
+                """
+                INSERT INTO financeiro (
+                    id, descricao, valor, tipo, data, categoria, syncStatus,
+                    isDeleted, cloudId, ownerUserId, updatedAtEpochMillis, cropCloudId
+                ) VALUES (
+                    21, 'Venda', 125.55, 'ENTRADA', '2026-08-04', 'Venda',
+                    'Salvo no Celular (Offline)', 0,
+                    '00000000-0000-4000-8000-000000000021', 'owner-1', 1234, NULL
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(
+            databaseName,
+            10,
+            true,
+            AgroDatabase.MIGRATION_9_10
+        )
+
+        migrated.query(
+            "SELECT descricao, valorCentavos, typeof(valorCentavos) FROM financeiro WHERE id = 21"
+        ).use {
+            assertEquals(true, it.moveToFirst())
+            assertEquals("Venda", it.getString(0))
+            assertEquals(12_555L, it.getLong(1))
+            assertEquals("integer", it.getString(2))
+        }
+        migrated.close()
+    }
+
+    @Test
+    fun migrate10To11CreatesConflictAuditTrail() {
+        val migrated = helper.createDatabase(databaseName, 10).let { database ->
+            database.close()
+            helper.runMigrationsAndValidate(
+                databaseName,
+                11,
+                true,
+                AgroDatabase.MIGRATION_10_11
+            )
+        }
+        migrated.execSQL(
+            """
+            INSERT INTO sync_conflicts (
+                ownerUserId, entityType, entityCloudId, localTimestamp,
+                remoteTimestamp, resolution, detectedAtEpochMillis
+            ) VALUES ('owner', 'tarefa', 'cloud-id', 100, 200, 'REMOTE_WON', 300)
+            """.trimIndent()
+        )
+        migrated.query("SELECT resolution FROM sync_conflicts").use {
+            assertEquals(true, it.moveToFirst())
+            assertEquals("REMOTE_WON", it.getString(0))
         }
         migrated.close()
     }

@@ -2,7 +2,7 @@
 
 Aplicativo Android de gestão rural voltado principalmente a produtores familiares e pequenas propriedades. O projeto reúne cadastro de talhões/safras, tarefas, fluxo de caixa, relatórios informativos para crédito rural, lembretes, backup protegido e sincronização opcional com Supabase.
 
-> **Estado atual:** beta funcional (`1.1.0-beta8`, `versionCode 9`). A aplicação já possui persistência local, autenticação, sincronização e testes, mas ainda não deve ser apresentada como um ERP agrícola completo nem como produto pronto para operação crítica sem uma etapa adicional de estabilização, segurança, suporte e validação com usuários reais.
+> **Estado atual:** beta funcional (`1.2.0-beta14`, `versionCode 14`). A aplicação já possui persistência local, autenticação, sincronização, clima opcional, exportação e testes, mas ainda não deve ser apresentada como um ERP agrícola completo nem como produto pronto para operação crítica sem validação com usuários reais e revisão jurídica/agronômica.
 
 Esta é a documentação técnica e de produto vigente em **4 de agosto de 2026**. O arquivo `documentacao_agrogestao.pdf`, na raiz, descreve uma fase conceitual anterior e não deve ser usado como fonte do estado atual.
 
@@ -53,8 +53,8 @@ O AgroGestão Pro ocupa uma posição intermediária: oferece dados estruturados
 | --- | --- | --- |
 | Conta | Cadastro, login, confirmação por deep link, reenvio, recuperação e troca de senha, renovação de sessão e logout | Recuperação usa link do Supabase e ainda precisa de validação live com conta temporária |
 | Uso local | Perfil local sem conta remota | Permite testar e trabalhar sem Supabase; a nuvem fica indisponível |
-| Painel | Resumo de entradas, saídas, saldo, talhões e tarefas pendentes | Dados reativos vindos do Room |
-| Modo Simples | Preferência persistente por conta, navegação com Início/Tarefas/Talhões/Mais e linguagem mais direta | O modo completo continua disponível e as funções essenciais permanecem acessíveis |
+| Hoje | Prioridade mais urgente, resumo do dia e fluxo guiado “Atualizar meu dia” | Pergunta o que foi plantado, colhido, comprado, vendido, pago ou recebido; reaproveita escolhas recentes e pode alimentar histórico, terreno e caixa |
+| Modo Simples | É recomendado por padrão para novos usuários, amplia componentes e áreas de toque, usa perguntas curtas e navegação Início/Tarefas/Terrenos/Mais | O modo completo continua disponível e escolhas já feitas permanecem persistentes por conta |
 | Talhões/safras | Cadastro, edição, exclusão, área, datas, progresso e situação de manejo | O nome da tabela histórica é `safras`, embora a interface use também o conceito de talhão |
 | Tarefas | Lista e quadro Kanban, três estados, filtros, edição, prazo, categoria e vínculo opcional com safra | Estados: a fazer, em progresso e concluído |
 | Lembretes | Notificações locais configuráveis de 0 a 7 dias antes, com horário escolhido | São isoladas por conta e revalidadas antes da entrega |
@@ -64,6 +64,9 @@ O AgroGestão Pro ocupa uma posição intermediária: oferece dados estruturados
 | Integridade do PDF | Histórico local, hash SHA-256 e bloqueio de arquivo ausente ou modificado | PDFs antigos sem prova de consentimento não são compartilhados |
 | Backup | Exportação e restauração em `.agrobackup`, protegida por senha | Restauração faz mesclagem e só aceita o mesmo proprietário lógico |
 | Nuvem | Sincronização bidirecional de perfil, safras, tarefas e financeiro | Supabase opcional, com RLS e compatibilidade limitada com esquema legado |
+| Clima | Previsão de sete dias por município, consentimento, cache offline, fonte e alertas informativos | Usa Open-Meteo sem GPS; é opcional e revogável |
+| CSV | Exportação financeira do período selecionado com metadados auditáveis | Inclui versão, geração, propriedade, centavos e identificadores |
+| Conflitos | Trilha local das versões concorrentes encontradas na sincronização | Informa se a nuvem venceu ou se a alteração local foi mantida |
 
 ## Arquitetura
 
@@ -121,7 +124,7 @@ Essa separação existe, mas não é uma Clean Architecture estrita: `AgroReposi
 
 ## Modelo de dados
 
-O banco Room está na versão **9** e possui seis entidades.
+O banco Room está na versão **11** e possui sete entidades.
 
 | Entidade/tabela | Finalidade | Relações e detalhes |
 | --- | --- | --- |
@@ -131,6 +134,7 @@ O banco Room está na versão **9** e possui seis entidades.
 | `financeiro` | Receitas e despesas | Vínculo opcional com `safras` por `cropCloudId` |
 | `report_history` | Metadados dos PDFs arquivados | Conta, período, totais, completude, hash, tamanho e versão |
 | `report_consent` | Estado local de consentimento | Versão, aceite, revogação e isolamento por proprietário |
+| `sync_conflicts` | Auditoria local de conflitos | Tipo, registro, timestamps e resolução, isolados por conta |
 
 Safras, tarefas e lançamentos usam um ID numérico local do Room e um UUID permanente (`cloudId`) para sincronização. Também possuem `ownerUserId`, `syncStatus`, `updatedAtEpochMillis` e `isDeleted`, o que permite isolamento local, controle de pendências e propagação de exclusões.
 
@@ -143,8 +147,10 @@ Safras, tarefas e lançamentos usam um ID numérico local do Room e um UUID perm
 - `6 -> 7`: associação entre safra, tarefa e lançamento;
 - `7 -> 8`: histórico de relatórios;
 - `8 -> 9`: versão do relatório e consentimento.
+- `9 -> 10`: valores financeiros migrados de `REAL/Double` para centavos inteiros;
+- `10 -> 11`: trilha local de conflitos de sincronização.
 
-Existe `fallbackToDestructiveMigrationFrom(1)` porque o schema da versão 1 não está disponível. Portanto, uma instalação realmente baseada nessa versão pode perder o banco local ao atualizar. Esse risco deve ser eliminado antes de uma distribuição ampla.
+Como o schema v1 nunca foi exportado, a migration `1 -> 2` usa recuperação assistida: recria o primeiro schema conhecido e preserva todas as tabelas/colunas reconhecidas com defaults seguros. Não existe mais fallback destrutivo silencioso. A atualização v1 sintética está coberta por teste instrumentado, mas um APK v1 real ainda deve ser incluído no piloto de atualização.
 
 ## Funcionamento offline e sincronização
 
@@ -224,6 +230,8 @@ SUPABASE_ANON_KEY=SUA_CHAVE_PUBLICA_OU_PUBLISHABLE
 
 Também é possível fornecer `SUPABASE_URL` e `SUPABASE_ANON_KEY` como variáveis de ambiente. O arquivo local `supabase.md` é aceito por compatibilidade, mas está ignorado pelo Git e não deve ser distribuído.
 
+Use `.env.example` ou `local.properties.example` como referência. No GitHub Actions, cadastre `SUPABASE_URL` e `SUPABASE_ANON_KEY` em **Settings → Secrets and variables → Actions**. Credenciais de assinatura de release são opcionais e usam as variáveis `AGRO_RELEASE_*` documentadas no `.env.example`.
+
 Sem essas credenciais o build continua possível e o perfil local funciona, porém cadastro, login e sincronização remota não funcionarão.
 
 ### 2. Preparar o Supabase
@@ -274,7 +282,7 @@ Os testes `LiveSupabaseAuthTest` e `LiveSupabaseSyncTest` dependem de configura�
 
 ## Testes e qualidade
 
-O código contém **64 testes automatizados**: 34 unitários e 30 instrumentados.
+O código contém **95 testes automatizados**: 55 unitários e 40 instrumentados.
 
 ### Cobertura funcional existente
 
@@ -292,16 +300,18 @@ O código contém **64 testes automatizados**: 34 unitários e 30 instrumentados
 - geração, compartilhamento, integridade e caminho seguro do PDF;
 - estados reativos dos filtros;
 - testes de ida e volta no Supabase real.
-- preferência, isolamento por conta e regras de navegação do Modo Simples.
+- escolha pré-login, preferência, isolamento por conta e regras de navegação do Modo Simples.
+- registro diário guiado, identificação do item/serviço, sugestões recentes, valores em reais, gravação composta em tarefa/caixa/terreno e desfazer seguro.
 
-### Verificação executada em 4 de agosto de 2026
+### Verificação executada em 8 de agosto de 2026
 
 | Comando | Resultado |
 | --- | --- |
-| `testDebugUnitTest` | 41 testes, 0 falhas, 0 erros, 0 ignorados |
+| `testDebugUnitTest` | 55 testes, 0 falhas, 0 erros, 0 ignorados |
 | `lintDebug` | 0 erros e 52 avisos |
 | `assembleDebug` | concluído com sucesso usando JDK 21 |
-| `connectedDebugAndroidTest` | 32 testes executados no AVD API 36.1, 0 falhas e 2 ignorados por exigirem credenciais temporárias do Supabase |
+| `bundleRelease` | AAB release gerado; assinatura de produção é configurável por arquivo/variáveis privadas |
+| `connectedDebugAndroidTest` | 40 testes no AVD API 36.1, 0 falhas e 2 ignorados por exigirem credenciais temporárias do Supabase |
 
 Os avisos do lint são principalmente dependências desatualizadas, alvo Android já não mais recente, ícone monocromático ausente e uma referência à permissão de notificações da API 33. Eles não impedem o build, mas devem ser triados antes de publicar.
 
@@ -373,21 +383,20 @@ Preço não foi usado como critério: o projeto ainda não define licença comer
 - recuperação e troca de senha implementadas, ainda sem validação live do e-mail de recuperação nesta rodada;
 - sem membros, papéis ou aprovação de tarefas;
 - sem estoque, fornecedores, contas a pagar/receber, fiscal, máquinas, mapa, GPS, imagens, pragas ou rebanho completo;
-- sem importação/exportação CSV;
-- sem clima — planejado para ciclo posterior;
+- sem importação CSV; exportação financeira já está disponível;
 - histórico de PDF, consentimento e preferências de lembrete não sincronizam;
 - restauração de backup bloqueada quando o identificador da conta muda, mesmo que seja a mesma pessoa após recriação da conta;
-- valores monetários usam `Double`; para contabilidade mais rigorosa, o modelo deve migrar para centavos inteiros ou decimal exato;
-- resolução de conflito por “última alteração vence”, sem interface de revisão.
+- valores financeiros persistidos e somados em centavos inteiros; APIs e exibição ainda convertem na borda para reais;
+- resolução automática de conflito por “última alteração vence”, agora com trilha consultável, mas sem mesclagem campo a campo.
 
 ### Riscos técnicos e de produto
 
 - `AgroRepository` e telas grandes aumentam custo de manutenção e teste;
-- versão release está com minificação desabilitada e não há configuração documentada de assinatura/AAB para loja;
+- versão release está com minificação desabilitada; assinatura/AAB estão configurados e documentados, mas a chave real depende do responsável pela publicação;
 - há CI para testes, lint, APK e padrões de segredos; ainda faltam política de versionamento formal, `LICENSE`, `CONTRIBUTING` e processo de revisão;
 - lint ainda possui 52 avisos e várias dependências estão atrás das versões atuais;
 - `targetSdk 35` já é sinalizado pelo lint como não sendo o alvo mais recente; requisitos da Play Store devem ser verificados antes da publicação;
-- ausência do schema Room v1 cria risco de migração destrutiva;
+- o schema Room v1 continua desconhecido; a recuperação assistida elimina deleção silenciosa, mas precisa ser validada contra um banco v1 real;
 - o banco de negócio não é criptografado em nível de arquivo;
 - não há monitoramento de falhas, métricas de produção ou mecanismo de migração remota controlada;
 - não existem evidências documentadas de pesquisa com produtores, taxa de conclusão de tarefas, retenção ou ganho financeiro;
@@ -412,8 +421,8 @@ O plano detalhado existente está em [`PROXIMAS_ALTERACOES.md`](PROXIMAS_ALTERAC
 appAgroGestao/
 ├── app/
 │   ├── src/main/                 # Código Android e recursos
-│   ├── src/test/                 # 41 testes unitários
-│   ├── src/androidTest/          # 32 testes instrumentados
+│   ├── src/test/                 # 55 testes unitários
+│   ├── src/androidTest/          # 40 testes instrumentados
 │   ├── schemas/                  # Schemas Room exportados
 │   └── build.gradle.kts          # Configuração do módulo
 ├── gradle/                       # Wrapper e catálogo de versões

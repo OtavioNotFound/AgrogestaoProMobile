@@ -9,11 +9,14 @@ import com.agrogestao.pro.data.backup.BackupSnapshot
 import com.agrogestao.pro.data.backup.ProducerBackup
 import com.agrogestao.pro.data.local.dao.BackupDao
 import com.agrogestao.pro.data.local.dao.CropDao
+import com.agrogestao.pro.data.local.dao.DailyActivityDao
+import com.agrogestao.pro.data.local.dao.DailyActivityLocalIds
 import com.agrogestao.pro.data.local.dao.FinancialDao
 import com.agrogestao.pro.data.local.dao.ProducerDao
 import com.agrogestao.pro.data.local.dao.ReportHistoryDao
 import com.agrogestao.pro.data.local.dao.ReportConsentDao
 import com.agrogestao.pro.data.local.dao.TaskDao
+import com.agrogestao.pro.data.local.dao.SyncConflictDao
 import com.agrogestao.pro.data.local.entities.CropEntity
 import com.agrogestao.pro.data.local.entities.FinancialEntity
 import com.agrogestao.pro.data.local.entities.ProducerEntity
@@ -22,6 +25,7 @@ import com.agrogestao.pro.data.local.entities.ReportConsentEntity
 import com.agrogestao.pro.data.local.entities.TaskEntity
 import com.agrogestao.pro.data.local.entities.TaskStatus
 import com.agrogestao.pro.data.local.entities.TransactionType
+import com.agrogestao.pro.data.local.entities.SyncConflictEntity
 import com.agrogestao.pro.data.remote.SupabaseConfig
 import com.agrogestao.pro.data.remote.SupabaseRestClient
 import com.agrogestao.pro.data.remote.SupabaseSchemaMode
@@ -34,11 +38,18 @@ import com.agrogestao.pro.data.sync.parseCloudTimestamp
 import com.agrogestao.pro.data.sync.shouldApplyRemoteChange
 import com.agrogestao.pro.domain.canUseLocalProfile
 import com.agrogestao.pro.domain.accountPasswordError
+import com.agrogestao.pro.domain.DailyActivityRequest
+import com.agrogestao.pro.domain.DailyActivityType
+import com.agrogestao.pro.domain.dailyActivityTaskTitle
+import com.agrogestao.pro.domain.dailyActivityValidationError
+import com.agrogestao.pro.domain.formatDateForDisplay
+import com.agrogestao.pro.domain.moneyToCents
 import com.agrogestao.pro.domain.shouldRefreshToken
 import com.agrogestao.pro.domain.tokenExpiryEpochSeconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -59,6 +70,13 @@ class EmailConfirmationRequiredException(val pendingEmail: String) : Exception(
     "Seu e-mail ainda não foi confirmado. Abra o e-mail recebido e toque no botão de confirmação."
 )
 
+data class DailyActivityReceipt(
+    val taskId: Long,
+    val transactionId: Long?,
+    val cropBefore: CropEntity?,
+    val cropAfterUpdatedAt: Long?
+)
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class AgroRepository(
     private val backupDao: BackupDao,
@@ -68,7 +86,9 @@ class AgroRepository(
     private val producerDao: ProducerDao,
     private val reportHistoryDao: ReportHistoryDao,
     private val reportConsentDao: ReportConsentDao,
-    private val secureSessionStore: SecureSessionStore
+    private val secureSessionStore: SecureSessionStore,
+    private val syncConflictDao: SyncConflictDao? = null,
+    private val dailyActivityDao: DailyActivityDao? = null
 ) {
     val producerProfile: Flow<ProducerEntity?> = producerDao.getProducerProfile()
 
@@ -87,8 +107,37 @@ class AgroRepository(
     val allTasks: Flow<List<TaskEntity>> = activeOwnerUserId.flatMapLatest { ownerUserId ->
         if (ownerUserId.isBlank()) flowOf(emptyList()) else taskDao.getAllTasks(ownerUserId)
     }
+    val syncConflicts: Flow<List<SyncConflictEntity>> = activeOwnerUserId.flatMapLatest { ownerUserId ->
+        if (ownerUserId.isBlank() || syncConflictDao == null) flowOf(emptyList())
+        else syncConflictDao.observe(ownerUserId)
+    }
+
+    suspend fun clearSyncConflicts() {
+        val owner = producerDao.getProducerProfileOnce()?.remoteUserId.orEmpty()
+        if (owner.isNotBlank()) syncConflictDao?.clear(owner)
+    }
     val allTransactions: Flow<List<FinancialEntity>> = activeOwnerUserId.flatMapLatest { ownerUserId ->
         if (ownerUserId.isBlank()) flowOf(emptyList()) else financialDao.getAllTransactions(ownerUserId)
+    }
+    val pendingCloudRecordCount: Flow<Int> = activeOwnerUserId.flatMapLatest { ownerUserId ->
+        if (ownerUserId.isBlank() || ownerUserId.startsWith(LOCAL_OWNER_PREFIX)) {
+            flowOf(0)
+        } else {
+            combine(
+                cropDao.observePendingSyncCount(
+                    ownerUserId,
+                    SupabaseConfig.STATUS_SYNCED_CLOUD
+                ),
+                taskDao.observePendingSyncCount(
+                    ownerUserId,
+                    SupabaseConfig.STATUS_SYNCED_CLOUD
+                ),
+                financialDao.observePendingSyncCount(
+                    ownerUserId,
+                    SupabaseConfig.STATUS_SYNCED_CLOUD
+                )
+            ) { crops, tasks, transactions -> crops + tasks + transactions }
+        }
     }
     val reportHistory: Flow<List<ReportHistoryEntity>> = activeOwnerUserId.flatMapLatest { ownerUserId ->
         if (ownerUserId.isBlank()) {
@@ -694,6 +743,147 @@ class AgroRepository(
             syncPendingData()
         }
 
+    suspend fun recordDailyActivity(request: DailyActivityRequest): DailyActivityReceipt =
+        withContext(Dispatchers.IO) {
+            dailyActivityValidationError(request)?.let { throw IllegalArgumentException(it) }
+            val ownerUserId = requireActiveUserId()
+            val selectedCrop = request.cropCloudId
+                ?.let { cropDao.getByCloudId(it) }
+                ?.takeIf { it.ownerUserId == ownerUserId && !it.isDeleted }
+            val cropCloudId = selectedCrop?.cloudId
+            val taskTimestamp = nextLocalTimestamp(0)
+            val cleanNote = request.note.trim()
+            val task = TaskEntity(
+                titulo = dailyActivityTaskTitle(
+                    type = request.type,
+                    note = cleanNote,
+                    cropName = selectedCrop?.nomeCultura
+                ),
+                descricao = cleanNote.ifBlank {
+                    "Registrado rapidamente pela tela Hoje."
+                },
+                categoria = request.type.category,
+                dataLimite = request.dateIso,
+                status = if (request.type.leavesOpenTask) TaskStatus.A_FAZER else TaskStatus.CONCLUIDO,
+                syncStatus = SupabaseConfig.STATUS_LOCAL_OFFLINE,
+                ownerUserId = ownerUserId,
+                updatedAtEpochMillis = taskTimestamp,
+                cropCloudId = cropCloudId
+            )
+            val transaction = if (request.type.createsFinancialRecord) {
+                val movement = if (request.type.createsIncome) "Entrada" else "Saída"
+                FinancialEntity(
+                    descricao = cleanNote.ifBlank {
+                        "$movement: ${request.type.userLabel.lowercase()}"
+                    },
+                    valorCentavos = requireNotNull(request.amountCents),
+                    tipo = if (request.type.createsIncome) {
+                        TransactionType.ENTRADA
+                    } else {
+                        TransactionType.SAIDA
+                    },
+                    data = request.dateIso,
+                    categoria = request.type.category,
+                    syncStatus = SupabaseConfig.STATUS_LOCAL_OFFLINE,
+                    ownerUserId = ownerUserId,
+                    updatedAtEpochMillis = nextLocalTimestamp(taskTimestamp),
+                    cropCloudId = cropCloudId
+                )
+            } else {
+                null
+            }
+            val updatedCrop = selectedCrop?.takeIf {
+                request.type == DailyActivityType.PLANTED || request.type == DailyActivityType.HARVESTED
+            }?.let { crop ->
+                val harvested = request.type == DailyActivityType.HARVESTED
+                crop.copy(
+                    progressoPercentual = if (harvested) 100 else maxOf(crop.progressoPercentual, 10),
+                    statusManejo = if (harvested) {
+                        "Colheita registrada em ${formatDateForDisplay(request.dateIso)}"
+                    } else {
+                        "Plantio registrado em ${formatDateForDisplay(request.dateIso)}"
+                    },
+                    syncStatus = SupabaseConfig.STATUS_LOCAL_OFFLINE,
+                    updatedAtEpochMillis = nextLocalTimestamp(crop.updatedAtEpochMillis)
+                )
+            }
+
+            val ids = dailyActivityDao?.record(task, transaction, updatedCrop)
+                ?: recordDailyActivityFallback(task, transaction, updatedCrop)
+
+            // O registro local já é sucesso. A falta de internet nunca deve obrigar o
+            // produtor a digitar tudo de novo; a fila normal tentará sincronizar depois.
+            runCatching { syncPendingData() }
+            DailyActivityReceipt(
+                taskId = ids.taskId,
+                transactionId = ids.transactionId,
+                cropBefore = selectedCrop.takeIf { updatedCrop != null },
+                cropAfterUpdatedAt = updatedCrop?.updatedAtEpochMillis
+            )
+        }
+
+    suspend fun undoDailyActivity(receipt: DailyActivityReceipt): Boolean =
+        withContext(Dispatchers.IO) {
+            val ownerUserId = requireActiveUserId()
+            var changed = false
+            taskDao.getTaskById(receipt.taskId)
+                ?.takeIf { it.ownerUserId == ownerUserId && !it.isDeleted }
+                ?.let { task ->
+                    taskDao.markDeleted(
+                        task.id,
+                        SupabaseConfig.STATUS_LOCAL_OFFLINE,
+                        nextLocalTimestamp(task.updatedAtEpochMillis)
+                    )
+                    changed = true
+                }
+            receipt.transactionId
+                ?.let { financialDao.getById(it) }
+                ?.takeIf { it.ownerUserId == ownerUserId && !it.isDeleted }
+                ?.let { transaction ->
+                    financialDao.markDeleted(
+                        transaction.id,
+                        SupabaseConfig.STATUS_LOCAL_OFFLINE,
+                        nextLocalTimestamp(transaction.updatedAtEpochMillis)
+                    )
+                    changed = true
+                }
+            receipt.cropBefore?.let { before ->
+                val current = cropDao.getById(before.id)
+                if (
+                    current?.ownerUserId == ownerUserId &&
+                    current.updatedAtEpochMillis == receipt.cropAfterUpdatedAt
+                ) {
+                    cropDao.updateCrop(
+                        before.copy(
+                            syncStatus = SupabaseConfig.STATUS_LOCAL_OFFLINE,
+                            updatedAtEpochMillis = nextLocalTimestamp(current.updatedAtEpochMillis)
+                        )
+                    )
+                    changed = true
+                }
+            }
+            if (changed) runCatching { syncPendingData() }
+            changed
+        }
+
+    private suspend fun recordDailyActivityFallback(
+        task: TaskEntity,
+        transaction: FinancialEntity?,
+        updatedCrop: CropEntity?
+    ): DailyActivityLocalIds {
+        val taskId = taskDao.insertTask(task)
+        var transactionId: Long? = null
+        return try {
+            transactionId = transaction?.let { financialDao.insertTransaction(it) }
+            updatedCrop?.let { cropDao.updateCrop(it) }
+            DailyActivityLocalIds(taskId, transactionId)
+        } catch (error: Throwable) {
+            transactionId?.let { financialDao.hardDelete(it) }
+            taskDao.hardDelete(taskId)
+            throw error
+        }
+    }
+
     suspend fun updateTransaction(transaction: FinancialEntity) =
         withContext(Dispatchers.IO) {
             val ownerUserId = requireActiveUserId()
@@ -861,32 +1051,44 @@ class AgroRepository(
                 return@withLock false
             }
 
-            val session = getCloudSession()
-            if (session == null) {
+            var activeSession = getCloudSession()
+            if (activeSession == null) {
                 markProducerSyncError(localProducer)
                 return@withLock false
             }
-            val schemaMode = SupabaseRestClient.detectSchema(session.accessToken)
+            var schemaMode = SupabaseRestClient.detectSchema(activeSession.accessToken)
+            if (schemaMode == null) {
+                // Um token pode ser revogado antes do horário informado no login.
+                // Renova uma vez antes de considerar a nuvem indisponível.
+                getCloudSession(forceRefresh = true)?.let { refreshedSession ->
+                    activeSession = refreshedSession
+                    schemaMode = SupabaseRestClient.detectSchema(refreshedSession.accessToken)
+                }
+            }
+            val session = activeSession
+                ?: return@withLock false
             if (schemaMode == null || (schemaMode == SupabaseSchemaMode.LEGACY && session.email.isBlank())) {
                 markProducerSyncError(localProducer)
                 return@withLock false
             }
             claimLegacyRows(session.userId)
 
-            val pullSucceeded = pullCloudState(session, schemaMode)
+            val activeSchemaMode = schemaMode
+                ?: return@withLock false
+            val pullSucceeded = pullCloudState(session, activeSchemaMode)
             if (!pullSucceeded) {
                 producerDao.getProducerProfileOnce()?.let { markProducerSyncError(it) }
                 return@withLock false
             }
 
-            var pushSucceeded = pushProducer(session, schemaMode)
+            var pushSucceeded = pushProducer(session, activeSchemaMode)
             cropDao.getPendingSync(session.userId, SupabaseConfig.STATUS_SYNCED_CLOUD)
-                .forEach { pushSucceeded = pushCrop(session, schemaMode, it) && pushSucceeded }
+                .forEach { pushSucceeded = pushCrop(session, activeSchemaMode, it) && pushSucceeded }
             taskDao.getPendingSync(session.userId, SupabaseConfig.STATUS_SYNCED_CLOUD)
-                .forEach { pushSucceeded = pushTask(session, schemaMode, it) && pushSucceeded }
+                .forEach { pushSucceeded = pushTask(session, activeSchemaMode, it) && pushSucceeded }
             financialDao.getPendingSync(session.userId, SupabaseConfig.STATUS_SYNCED_CLOUD)
                 .forEach {
-                    pushSucceeded = pushTransaction(session, schemaMode, it) && pushSucceeded
+                    pushSucceeded = pushTransaction(session, activeSchemaMode, it) && pushSucceeded
                 }
 
             pushSucceeded &&
@@ -996,6 +1198,7 @@ class AgroRepository(
             if (cloudId.isBlank()) return@forEach
             val timestamp = remote.updatedAtMillis(schemaMode)
             val local = cropDao.getByCloudId(cloudId)
+            recordConflictIfNeeded(userId, "safra", cloudId, local?.updatedAtEpochMillis, timestamp, local?.syncStatus)
             if (local != null && !shouldApplyRemoteChange(local.updatedAtEpochMillis, timestamp)) {
                 return@forEach
             }
@@ -1032,6 +1235,7 @@ class AgroRepository(
             if (cloudId.isBlank()) return@forEach
             val timestamp = remote.updatedAtMillis(schemaMode)
             val local = taskDao.getByCloudId(cloudId)
+            recordConflictIfNeeded(userId, "tarefa", cloudId, local?.updatedAtEpochMillis, timestamp, local?.syncStatus)
             if (local != null && !shouldApplyRemoteChange(local.updatedAtEpochMillis, timestamp)) {
                 return@forEach
             }
@@ -1072,6 +1276,7 @@ class AgroRepository(
             if (cloudId.isBlank()) return@forEach
             val timestamp = remote.updatedAtMillis(schemaMode)
             val local = financialDao.getByCloudId(cloudId)
+            recordConflictIfNeeded(userId, "financeiro", cloudId, local?.updatedAtEpochMillis, timestamp, local?.syncStatus)
             if (local != null && !shouldApplyRemoteChange(local.updatedAtEpochMillis, timestamp)) {
                 return@forEach
             }
@@ -1082,7 +1287,7 @@ class AgroRepository(
                     FinancialEntity(
                         id = local?.id ?: 0,
                         descricao = remote.optString("descricao"),
-                        valor = remote.optDouble("valor"),
+                        valorCentavos = moneyToCents(remote.optDouble("valor")),
                         tipo = remote.optString("tipo").toTransactionType(),
                         data = remote.optString("data"),
                         categoria = remote.optString("categoria"),
@@ -1131,6 +1336,7 @@ class AgroRepository(
                 )
             }
         )
+        logPushFailure("perfil", result)
         val acknowledgedTimestamp = result.rows.firstOrNull()?.updatedAtMillis(schemaMode) ?: 0
         if (result.success && acknowledgedTimestamp > producer.updatedAtEpochMillis) {
             applyRemoteProfile(session.userId, schemaMode, result)
@@ -1184,6 +1390,7 @@ class AgroRepository(
                 if (schemaMode == SupabaseSchemaMode.MODERN) put("is_deleted", crop.isDeleted)
             }
         )
+        logPushFailure("safra", result)
         val acknowledgedTimestamp = result.rows.firstOrNull()?.updatedAtMillis(schemaMode) ?: 0
         if (result.success && acknowledgedTimestamp > crop.updatedAtEpochMillis) {
             applyRemoteCrops(session.userId, schemaMode, result)
@@ -1244,6 +1451,7 @@ class AgroRepository(
                 }
             }
         )
+        logPushFailure("tarefa", result)
         val acknowledgedTimestamp = result.rows.firstOrNull()?.updatedAtMillis(schemaMode) ?: 0
         if (result.success && acknowledgedTimestamp > task.updatedAtEpochMillis) {
             applyRemoteTasks(session.userId, schemaMode, result)
@@ -1307,6 +1515,7 @@ class AgroRepository(
                 }
             }
         )
+        logPushFailure("financeiro", result)
         val acknowledgedTimestamp = result.rows.firstOrNull()?.updatedAtMillis(schemaMode) ?: 0
         if (result.success && acknowledgedTimestamp > transaction.updatedAtEpochMillis) {
             applyRemoteTransactions(session.userId, schemaMode, result)
@@ -1330,7 +1539,7 @@ class AgroRepository(
         return accepted
     }
 
-    private suspend fun getCloudSession(): CloudSession? {
+    private suspend fun getCloudSession(forceRefresh: Boolean = false): CloudSession? {
         val producer = producerDao.getProducerProfileOnce()?.takeIf { it.isLoggedIn } ?: return null
         val stored = secureSessionStore.read() ?: return null
         val userId = producer.remoteUserId.takeIf(String::isNotBlank) ?: return null
@@ -1338,7 +1547,7 @@ class AgroRepository(
             secureSessionStore.clear()
             return null
         }
-        if (!shouldRefreshToken(stored.expiresAtEpochSeconds, nowEpochSeconds())) {
+        if (!forceRefresh && !shouldRefreshToken(stored.expiresAtEpochSeconds, nowEpochSeconds())) {
             return CloudSession(stored.accessToken, userId, producer.email)
         }
 
@@ -1452,6 +1661,15 @@ class AgroRepository(
         )
     }
 
+    private fun logPushFailure(entityType: String, result: SyncResult) {
+        if (!result.success) {
+            Log.w(
+                "AgroSync",
+                "Falha ao enviar $entityType: ${result.errorMessage.orEmpty()}"
+            )
+        }
+    }
+
     private fun migrateLegacySession(producer: ProducerEntity): SecureSession? {
         val accessToken = producer.accessToken.takeIf(String::isNotBlank) ?: return null
         val userId = producer.remoteUserId.ifBlank {
@@ -1508,6 +1726,34 @@ class AgroRepository(
         "Este celular contém dados de outra conta. " +
             "Saia e exporte os dados antes de trocar de produtor."
     )
+
+    private suspend fun recordConflictIfNeeded(
+        ownerUserId: String,
+        entityType: String,
+        cloudId: String,
+        localTimestamp: Long?,
+        remoteTimestamp: Long,
+        localSyncStatus: String?
+    ) {
+        if (
+            syncConflictDao == null || localTimestamp == null || remoteTimestamp <= 0L ||
+            localTimestamp == remoteTimestamp || localSyncStatus == SupabaseConfig.STATUS_SYNCED_CLOUD
+        ) return
+        syncConflictDao.insert(
+            SyncConflictEntity(
+                ownerUserId = ownerUserId,
+                entityType = entityType,
+                entityCloudId = cloudId,
+                localTimestamp = localTimestamp,
+                remoteTimestamp = remoteTimestamp,
+                resolution = if (shouldApplyRemoteChange(localTimestamp, remoteTimestamp)) {
+                    "REMOTE_WON"
+                } else {
+                    "LOCAL_KEPT"
+                }
+            )
+        )
+    }
 
     private data class CloudSession(
         val accessToken: String,

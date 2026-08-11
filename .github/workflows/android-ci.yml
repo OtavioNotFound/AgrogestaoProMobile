@@ -15,9 +15,12 @@ concurrency:
 
 jobs:
   verify:
-    name: Testes, lint e APK
+    name: Testes, lint, APK e AAB
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
 
     steps:
       - name: Baixar código
@@ -38,8 +41,8 @@ jobs:
       - name: Validar wrapper
         run: chmod +x gradlew
 
-      - name: Executar testes, lint e montar APK
-        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+      - name: Executar testes, lint e montar APK/AAB
+        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug bundleRelease
 
       - name: Publicar relatórios e APK de teste
         if: always()
@@ -50,5 +53,6 @@ jobs:
           retention-days: 14
           path: |
             app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/bundle/release/app-release.aab
             app/build/reports/lint-results-debug.html
             app/build/reports/tests/testDebugUnitTest/

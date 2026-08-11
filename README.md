@@ -4,7 +4,7 @@ Aplicativo Android de gestão rural voltado principalmente a produtores familiar
 
 > **Estado atual:** beta funcional (`1.2.0-beta14`, `versionCode 14`). A aplicação já possui persistência local, autenticação, sincronização, clima opcional, exportação e testes, mas ainda não deve ser apresentada como um ERP agrícola completo nem como produto pronto para operação crítica sem validação com usuários reais e revisão jurídica/agronômica.
 
-Esta é a documentação técnica e de produto vigente em **4 de agosto de 2026**. O arquivo `documentacao_agrogestao.pdf`, na raiz, descreve uma fase conceitual anterior e não deve ser usado como fonte do estado atual.
+Esta é a documentação técnica e de produto vigente em **4 de agosto de 2026**. O arquivo [`documentos anteriores/documentacao_agrogestao.pdf`](documentos%20anteriores/documentacao_agrogestao.pdf) descreve uma fase conceitual anterior e não deve ser usado como fonte do estado atual.
 
 ## Sumário
 
@@ -449,4 +449,4 @@ Este repositório não contém um arquivo `LICENSE`. Portanto, o fato de o códi
 - [`supabase/README.md`](supabase/README.md): preparação do backend e estratégia de sincronização;
 - [`PLANO_EXPANSAO.md`](PLANO_EXPANSAO.md): diagnóstico e histórico de implementação;
 - [`PROXIMAS_ALTERACOES.md`](PROXIMAS_ALTERACOES.md): roadmap das próximas betas;
-- `documentacao_agrogestao.pdf`: registro histórico da fase conceitual, atualmente desatualizado.
+- [`documentos anteriores/documentacao_agrogestao.pdf`](documentos%20anteriores/documentacao_agrogestao.pdf): registro histórico da fase conceitual, atualmente desatualizado.

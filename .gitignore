@@ -39,3 +39,15 @@ Desktop.ini
 ~$*
 .~lock.*#
 *.inspect.ndjson
+
+# Local documentation, archived artifacts and presentation workfiles
+/documentacao definitiva/
+/documentos anteriores/
+/reimaginar slide/
+*.doc
+*.docx
+*.ppt
+*.pptx
+*.xls
+*.xlsx
+*.pdf
